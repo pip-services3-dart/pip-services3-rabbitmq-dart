@@ -1,0 +1,1 @@
+export './RabbitMQConnectionResolver.dart';
