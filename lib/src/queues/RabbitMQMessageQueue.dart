@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import "package:dart_amqp/dart_amqp.dart" as amqp;
+import 'package:dart_amqp/dart_amqp.dart' as amqp;
 import 'package:pip_services3_commons/pip_services3_commons.dart';
 import 'package:pip_services3_components/pip_services3_components.dart';
 import 'package:pip_services3_messaging/pip_services3_messaging.dart';
@@ -28,16 +28,16 @@ import '../connect/RabbitMQConnectionResolver.dart';
 ///  - *:credential-store:*:*:1.0   (optional) Credential stores to resolve credentials
 
 ///  var _queue = new RabbitMQMessageQueue('my_queue');
-///  _queue.configure(ConfigParams.FromTuples(
+///  queue.configure(ConfigParams.FromTuples(
 ///  'topic', 'mytopic',
-///  '_connection.protocol', 'mqtt'
-///  '_connection.host', 'localhost'
-///  '_connection.port', 1883 ));
-///  _queue.Open('123');
+///  'connection.protocol', 'mqtt'
+///  'connection.host', 'localhost'
+///  'connection.port', 1883 ));
+///  queue.Open('123');
 
-///  _queue.Send('123', new MessageEnvelop(null, 'mymessage', 'ABC'));
-///  _queue.Receive('123', 0);
-///  _queue.Complete('123', message);
+///  queue.Send('123', new MessageEnvelop(null, 'mymessage', 'ABC'));
+///  queue.Receive('123', 0);
+///  queue.Complete('123', message);
 
 class RabbitMQMessageQueue extends MessageQueue {
   int _defaultCheckinterval = 1000;
@@ -49,6 +49,7 @@ class RabbitMQMessageQueue extends MessageQueue {
   amqp.Queue _queue;
   amqp.Exchange _exchange;
   amqp.ExchangeType _exchangeType = amqp.ExchangeType.FANOUT;
+  amqp.Consumer _consumer;
   String _routingKey;
   bool _persistent = false;
   bool _exclusive = false;
@@ -264,7 +265,7 @@ class RabbitMQMessageQueue extends MessageQueue {
   ///  Parameters:
   ///  - [correlationId] (optional) transaction id to trace execution through call chain.
   ///  Returns: a message
-  Future<MessageEnvelope> Peek(String correlationId) async {
+  Future<MessageEnvelope> peek(String correlationId) async {
     _checkOpened(correlationId);
 
     var comsummer = await _queue.consume();
@@ -282,256 +283,217 @@ class RabbitMQMessageQueue extends MessageQueue {
     return message;
   }
 
-// //  PeekBatch method are peeks multiple incoming messages from the _queue without removing them.
-// //  If there are no messages available in the _queue it returns an empty list.
-// //  Parameters:
-// //   - correlationId (optional) transaction id to trace execution through call chain.
-// //   - messageCount a maximum number of messages to peek.
-// //  Returns: a list with messages
-// func (c *RabbitMQMessageQueue) PeekBatch(String correlationId, messageCount int64) (result []msg_queues.MessageEnvelope, err error) {
-// 	err = checkOpened(correlationId)
-// 	if err != null {
-// 		return null, err
-// 	}
-// 	err = null
-// 	messages := make([]msg_queues.MessageEnvelope, 0)
-// 	for messageCount > 0 {
-// 		envelope, ok, getErr := _mqChanel.Get(_queue, false)
-// 		if getErr != null || !ok {
-// 			err = getErr
-// 			break
-// 		}
-// 		message := toMessage(&envelope)
-// 		messages = append(messages, *message)
-// 		messageCount--
-// 	}
-// 	Logger.Trace(correlationId, 'Peeked %s messages on %s', len(messages), Name)
-// 	return messages, err
-// }
+///  PeekBatch method are peeks multiple incoming messages from the _queue without removing them.
+///  If there are no messages available in the _queue it returns an empty list.
+///  Parameters:
+///   - [correlationId] (optional) transaction id to trace execution through call chain.
+///   - [messageCount] a maximum number of messages to peek.
+///  Returns: a list with messages
+@override
+Future<List<MessageEnvelope>> peekBatch(String correlationId, int messageCount)async  {
+ _checkOpened(correlationId);
+	
+	
+	var messages = <MessageEnvelope>[];
+	for (;messageCount > 0;) {
+		var envelope = _mqChanel.get(_queue, false);
+		// if getErr != null || !ok {
+		// 	err = getErr
+		// 	break
+		// }
+		var message = _toMessage(envelope);
+		messages.add(message);
+		messageCount--;
+	}
+	logger.trace(correlationId, 'Peeked %s messages on %s', [messages.length, name]);
+	return messages;
+}
 
-// //  Receive method are receives an incoming message and removes it from the _queue.
-// //  Parameters:
-// //  - correlationId (optional) transaction id to trace execution through call chain.
-// //  - waitTimeout a timeout in milliseconds to wait for a message to come.
-// //  Returns: a message
-// func (c *RabbitMQMessageQueue) Receive(String correlationId, waitTimeout time.Duration) (result *msg_queues.MessageEnvelope, err error) {
+//  Receive method are receives an incoming message and removes it from the _queue.
+//  Parameters:
+//  - correlationId (optional) transaction id to trace execution through call chain.
+//  - waitTimeout a timeout in milliseconds to wait for a message to come.
+//  Returns: a message
+@override
+Future<MessageEnvelope> receive(String correlationId, int waitTimeout) {
 
-// 	err = checkOpened(correlationId)
-// 	if err != null {
-// 		return null, err
-// 	}
-// 	err = null
+	_checkOpened(correlationId);
+	
+	if _cancel == null {
+		_cancel = make(chan bool)
+	}
+	var envelope *rabbitmq.Delivery
+	wg := synWaitGroup{}
+	wg.Add(1)
 
-// 	if _cancel == null {
-// 		_cancel = make(chan bool)
-// 	}
-// 	var envelope *rabbitmq.Delivery
-// 	wg := synWaitGroup{}
-// 	wg.Add(1)
+	go func(timeout time.Duration) {
+		defer wg.Done()
+		stop := false
+		for !stop {
+			if timeout <= 0 {
+				break
+			}
+			// Read the message and exit if received
+			env, ok, getErr := _mqChanel.Get(_queue, false) // true
+			if ok && getErr == null {
+				envelope = &env
+				break
+			}
+			select {
+			case <-time.After(interval):
+			case <-_cancel:
+				{
+					stop = true
+				}
+			}
+			timeout = timeout - interval
+		}
 
-// 	go func(timeout time.Duration) {
-// 		defer wg.Done()
-// 		stop := false
-// 		for !stop {
-// 			if timeout <= 0 {
-// 				break
-// 			}
-// 			// Read the message and exit if received
-// 			env, ok, getErr := _mqChanel.Get(_queue, false) // true
-// 			if ok && getErr == null {
-// 				envelope = &env
-// 				break
-// 			}
-// 			select {
-// 			case <-time.After(interval):
-// 			case <-_cancel:
-// 				{
-// 					stop = true
-// 				}
-// 			}
-// 			timeout = timeout - interval
-// 		}
+		close(_cancel)
+		_cancel = null
+	}(waitTimeout)
 
-// 		close(_cancel)
-// 		_cancel = null
-// 	}(waitTimeout)
+	wg.Wait()
+	message := toMessage(envelope)
 
-// 	wg.Wait()
-// 	message := toMessage(envelope)
+	if message != null {
+		Counters.IncrementOne('_queue.' + Name + '.received_messages')
+		Logger.Debug(message.Correlation_id, 'Received message %s via %s', message, c)
+	}
 
-// 	if message != null {
-// 		Counters.IncrementOne('_queue.' + Name + '.received_messages')
-// 		Logger.Debug(message.Correlation_id, 'Received message %s via %s', message, c)
-// 	}
+	return message;
+}
 
-// 	return message, null
-// }
+///  Renews a lock on a message that makes it invisible from other receivers in the _queue.
+///  This method is usually used to extend the message processing time.
+///  Important: This method is not supported by MQTT.
+///  Parameters:
+///  - [message] a message to extend its lock.
+///  - [lockTimeout] a locking timeout in milliseconds.
+@override
+Future renewLock(MessageEnvelope message , int lockTimeout) async{
+	// Operation is not supported
+	return null;
+}
 
-// //  Renews a lock on a message that makes it invisible from other receivers in the _queue.
-// //  This method is usually used to extend the message processing time.
-// //  Important: This method is not supported by MQTT.
-// //  Parameters:
-// //  - message a message to extend its lock.
-// //  - lockTimeout a locking timeout in milliseconds.
-// func (c *RabbitMQMessageQueue) RenewLock(message *msg_queues.MessageEnvelope, lockTimeout time.Duration) (err error) {
+///  Returnes message into the _queue and makes it available for all subscribers to receive it again.
+///  This method is usually used to return a message which could not be processed at the moment
+///  to repeat the attempt.Messages that cause unrecoverable errors shall be removed permanently
+///  or/and send to dead letter _queue.
+///  Parameters:
+///  - [message] a message to return.
+@override
+Future abandon(MessageEnvelope message) async{
+ _checkOpened('');
+	
+	// Make the message immediately visible
+	var envelope = message.getReference();
+	if (envelope != null) {
+		 _mqChanel.nack(envelope.DeliveryTag, false, true);
+	
+		message.setReference(null);
+		logger.trace(message.correlation_id, 'Abandoned message %s at %c', [message, name]);
+	}
+	return null;
+}
 
-// 	// Operation is not supported
-// 	return null
-// }
+///  Permanently removes a message from the _queue.
+///  This method is usually used to remove the message after successful processing.
+///  Parameters:
+///  - [message] a message to remove.
+@override
+Future complete(MessageEnvelope message ) async{
+ _checkOpened('');
+	
+	var envelope = message.getReference();
+	if (envelope != null) {
+		_mqChanel.ack(envelope.deliveryTag);
+		message.setReference(null);
+		logger.trace(message.correlation_id, 'Completed message %s at %s', [message, name]);
+	}
 
-// //  Returnes message into the _queue and makes it available for all subscribers to receive it again.
-// //  This method is usually used to return a message which could not be processed at the moment
-// //  to repeat the attempt.Messages that cause unrecoverable errors shall be removed permanently
-// //  or/and send to dead letter _queue.
-// //  Important: This method is not supported by MQTT.
-// //  Parameters:
-// //  - message a message to return.
-// func (c *RabbitMQMessageQueue) Abandon(message *msg_queues.MessageEnvelope) (err error) {
-// 	err = checkOpened('')
-// 	if err != null {
-// 		return err
-// 	}
-// 	err = null
+}
 
-// 	// Make the message immediately visible
-// 	envelope, ok := message.GetReference().(*rabbitmq.Delivery)
-// 	if ok {
-// 		err = _mqChanel.Nack(envelope.DeliveryTag, false, true)
-// 		if err != null {
-// 			return err
-// 		}
-// 		message.SetReference(null)
-// 		Logger.Trace(message.Correlation_id, 'Abandoned message %s at %c', message, Name)
-// 	}
-// 	return null
-// }
+  ///  Permanently removes a message from the _queue and sends it to dead letter _queue.
+  ///  Important: This method is not supported by MQTT.
+  ///  Parameters:
+  ///  - [message] a message to be removed.
+  ///  throw error
+  @override
+  Future moveToDeadLetter(MessageEnvelope message) async {
+    _checkOpened('');
+    // Operation is not supported
+  }
 
-// //  Permanently removes a message from the _queue.
-// //  This method is usually used to remove the message after successful processing.
-// //  Important: This method is not supported by MQTT.
-// //  Parameters:
-// //  - message a message to remove.
-// func (c *RabbitMQMessageQueue) Complete(message *msg_queues.MessageEnvelope) (err error) {
-// 	err = checkOpened('')
-// 	if err != null {
-// 		return err
-// 	}
-// 	err = null
-// 	envelope, ok := message.GetReference().(*rabbitmq.Delivery)
-// 	if ok {
-// 		_mqChanel.Ack(envelope.DeliveryTag, false)
-// 		message.SetReference(null)
-// 		Logger.Trace(message.Correlation_id, 'Completed message %s at %s', message, Name)
-// 	}
-// 	return null
-// }
+  ///  Listens for incoming messages and blocks the current thread until _queue is closed.
+  /// Parameters:
+  ///  - [correlationId] (optional) transaction id to trace execution through call chain.
+  ///  Returns            Future that recive null on compleate 
+  /// Throws error
+  @override
+  Future listen(String correlationId, IMessageReceiver receiver) async {
+    try {
+      _checkOpened('');
+    } catch (err) {
+      logger.error(correlationId, err,
+          'RabbitMQMessageQueue:Listen: Can\'t start listen ' + err);
+      rethrow;
+    }
 
-// //  Permanently removes a message from the _queue and sends it to dead letter _queue.
-// //  Important: This method is not supported by MQTT.
-// //  Parameters:
-// //  - message a message to be removed.
-// //  Returns:
-// func (c *RabbitMQMessageQueue) MoveToDeadLetter(message *msg_queues.MessageEnvelope) (err error) {
-// 	err = checkOpened('')
-// 	if err != null {
-// 		return err
-// 	}
-// 	err = null
+    logger.debug(correlationId, 'Started listening messages at %s', [name]);
+    try {
+      _consumer = await _queue.consume();
+    } catch (err) {
+      logger.error(correlationId, err,
+          'RabbitMQMessageQueue:Listen: Can\'t consume to _queue' + err);
+      rethrow;
+    }
 
-// 	// Operation is not supported
+    _consumer.listen((amqp.AmqpMessage msg) {
+      var message = _toMessage(msg);
+      counters.incrementOne('_queue.' + name + '.received_messages');
+      logger.debug(message.correlation_id, 'Received message %s via %s',
+          [message, name]);
+      try {
+        receiver.receiveMessage(message, this);
+      } catch (err) {
+        logger.error(
+            message.correlation_id,
+            err,
+            'Processing received message %s error in _queue %s',
+            [message, name]);
+      }
+      msg.ack();
+    });
+  }
 
-// 	return null
-// }
+  ///  Ends listening for incoming messages.
+  ///  When this method is call listen unblocks the thread and execution continues.
+  ///  Parameters:
+  ///  - [correlationId] (optional) transaction id to trace execution through call chain.
+  @override
+  Future endListen(String correlationId) async {
+    if (_consumer != null) {
+      await _consumer.cancel();
+    }
+  }
 
-// //  Listens for incoming messages and blocks the current thread until _queue is closed.
-// // Parameters:
-// //  - correlationId (optional) transaction id to trace execution through call chain.
-// //  - callback
-// //  Returns:
-// func (c *RabbitMQMessageQueue) Listen(String correlationId, receiver msg_queues.IMessageReceiver) {
-// 	err := checkOpened('')
-// 	if err != null {
-// 		Logger.Error(correlationId, err, 'RabbitMQMessageQueue:Listen: Can't start listen '+err.Error())
-// 		return
-// 	}
+  ///  Clear method are clears component state.
+  ///  Parameters:
+  ///  - [correlationId] (optional) transaction id to trace execution through call chain.
+  ///  Returns:
+  @override
+  Future clear(String correlationId) async {
+    _checkOpened('');
 
-// 	Logger.Debug(correlationId, 'Started listening messages at %s', Name)
+    var count = 0;
+    if (_queue != null) {
+      count = _queue.messageCount;
+      await _queue.purge();
+    }
 
-// 	// Create new _cancelation token
-// 	if _cancel == null {
-// 		_cancel = make(chan bool)
-// 	}
+    logger.trace(
+        correlationId, 'Cleared  %s messages in _queue %s', [count, name]);
+  }
 
-// 	messageChannel, err := _mqChanel.Consume(
-// 		_queue,
-// 		_exchange,
-// 		false,
-// 		false,
-// 		false,
-// 		false,
-// 		null,
-// 	)
-
-// 	if err != null {
-// 		Logger.Error(correlationId, err, 'RabbitMQMessageQueue:Listen: Can't consume to _queue'+err.Error())
-// 		return
-// 	}
-
-// 	go func() {
-// 		stop := false
-// 		for !stop {
-
-// 			select {
-// 			case <-_cancel:
-// 				{
-// 					stop = true
-// 				}
-// 			case msg := <-messageChannel:
-// 				{
-// 					message := toMessage(&msg)
-// 					Counters.IncrementOne('_queue.' + Name + '.received_messages')
-// 					Logger.Debug(message.Correlation_id, 'Received message %s via %s', message, Name)
-// 					recvErr := receiver.ReceiveMessage(message, c)
-// 					if recvErr != null {
-// 						Logger.Error(message.Correlation_id, recvErr, 'Processing received message %s error in _queue %s', message, Name)
-// 					}
-// 					_mqChanel.Ack(msg.DeliveryTag, false)
-// 				}
-// 			}
-// 		}
-// 		close(_cancel)
-// 		_cancel = null
-// 	}()
-
-// }
-
-// //  Ends listening for incoming messages.
-// //  When this method is call listen unblocks the thread and execution continues.
-// //  Parameters:
-// //  - correlationId (optional) transaction id to trace execution through call chain.
-// func (c *RabbitMQMessageQueue) EndListen(String correlationId) {
-// 	if _cancel != null {
-// 		_cancel <- true
-// 	}
-// }
-
-// //  Clear method are clears component state.
-// //  Parameters:
-// //  - correlationId (optional) transaction id to trace execution through call chain.
-// //  Returns:
-// func (c *RabbitMQMessageQueue) Clear(String correlationId) (err error) {
-// 	err = checkOpened('')
-// 	if err != null {
-// 		return err
-// 	}
-// 	err = null
-// 	count := 0
-// 	if _queue != '' {
-// 		count, err = _mqChanel.QueuePurge(_queue, false)
-// 	}
-// 	if err == null {
-// 		Logger.Trace(correlationId, 'Cleared  %s messages in _queue %s', count, Name)
-// 	}
-// 	return err
-// }
 }

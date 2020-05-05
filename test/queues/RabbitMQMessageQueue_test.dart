@@ -1,86 +1,78 @@
-// package test_queues
+import 'dart:io';
+import 'package:test/test.dart';
+import 'package:pip_services3_commons/pip_services3_commons.dart';
+import 'package:pip_services3_rabbitmq/pip_services3_rabbitmq.dart';
+import './MessageQueueFixture.dart';
 
-// import (
-// 	"os"
-// 	"testing"
+void main() {
+  group('Test RabbitMQMessageQueue', () {
+    RabbitMQMessageQueue queue;
+    MessageQueueFixture fixture;
 
-// 	cconf "github.com/pip-services3-go/pip-services3-commons-go/config"
-// 	rabbitqueue "github.com/pip-services3-go/pip-services3-rabbitmq-go/queues"
-// )
+    setUpAll(() async {
+      var rabbitmqHost = Platform.environment['RABBITMQ_HOST'] ?? 'localhost';
+      var rabbitmqPort = Platform.environment['RABBITMQ_PORT'] ?? '5672';
+      var rabbitmqExchange =
+          Platform.environment['RABBITMQ_EXCHANGE'] ?? 'test';
+      var rabbitmqQueue = Platform.environment['RABBITMQ_QUEUE'] ?? 'test';
+      var rabbitmqUser = Platform.environment['RABBITMQ_USER'] ?? 'user';
+      var rabbitmqPassword =
+          Platform.environment['RABBITMQ_PASS'] ?? 'password';
 
-// func TestRabbitMQMessageQueue(t *testing.T) {
+      if (rabbitmqHost == null && rabbitmqPort == null) {
+        return;
+      }
+      var queueConfig = ConfigParams.fromTuples([
+        'exchange', rabbitmqExchange,
+        'queue', rabbitmqQueue,
+        'options.auto_create', true,
+        //'connection.protocol', 'amqp',
+        'connection.host', rabbitmqHost,
+        'connection.port', rabbitmqPort,
+        //'credential.username', rabbitmqUser,
+        //'credential.password', rabbitmqPassword,
+      ]);
+      queue = RabbitMQMessageQueue('testQueue');
+      queue.configure(queueConfig);
+      fixture = MessageQueueFixture(queue);
 
-// 	var queue *rabbitqueue.RabbitMQMessageQueue
-// 	var fixture *MessageQueueFixture
+      await queue.open('');
+    });
 
-// 	rabbitmqHost := os.Getenv("RABBITMQ_HOST")
-// 	if rabbitmqHost == "" {
-// 		rabbitmqHost = "localhost"
-// 	}
-// 	rabbitmqPort := os.Getenv("RABBITMQ_PORT")
-// 	if rabbitmqPort == "" {
-// 		rabbitmqPort = "5672"
-// 	}
+    tearDownAll(() async {
+      await queue.close('');
+    });
 
-// 	rabbitmqExchange := os.Getenv("RABBITMQ_EXCHANGE")
-// 	if rabbitmqExchange == "" {
-// 		rabbitmqExchange = "test"
-// 	}
+    setUp(() async {
+      await queue.clear('');
+    });
 
-// 	rabbitmqQueue := os.Getenv("RABBITMQ_QUEUE")
-// 	if rabbitmqQueue == "" {
-// 		rabbitmqQueue = "test"
-// 	}
+    test('RabbitMQMessageQueue:Send Receive Message', () async {
+      await fixture.testSendReceiveMessage();
+    });
 
-// 	rabbitmqUser := os.Getenv("RABBITMQ_USER")
-// 	if rabbitmqUser == "" {
-// 		rabbitmqUser = "user"
-// 	}
+    test('RabbitMQMessageQueue:Receive Send Message', () async {
+      await fixture.testReceiveSendMessage();
+    });
 
-// 	rabbitmqPassword := os.Getenv("RABBITMQ_PASS")
-// 	if rabbitmqPassword == "" {
-// 		rabbitmqPassword = "password"
-// 	}
+    test('RabbitMQMessageQueue:Receive And Complete Message', () async {
+      await fixture.testReceiveCompleteMessage();
+    });
 
-// 	if rabbitmqHost == "" && rabbitmqPort == "" {
-// 		return
-// 	}
+    test('RabbitMQMessageQueue:Receive And Abandon Message', () async {
+      await fixture.testReceiveAbandonMessage();
+    });
 
-// 	queueConfig := cconf.NewConfigParamsFromTuples(
-// 		"exchange", rabbitmqExchange,
-// 		"queue", rabbitmqQueue,
-// 		"options.auto_create", true,
-// 		//"connection.protocol", "amqp",
-// 		"connection.host", rabbitmqHost,
-// 		"connection.port", rabbitmqPort,
-// 		//"credential.username", rabbitmqUser,
-// 		//"credential.password", rabbitmqPassword,
-// 	)
+    test('RabbitMQMessageQueue:Send Peek Message', () async {
+      await fixture.testSendPeekMessage();
+    });
 
-// 	queue = rabbitqueue.NewEmptyRabbitMQMessageQueue("testQueue")
-// 	queue.Configure(queueConfig)
+    test('RabbitMQMessageQueue:Peek No Message', () async {
+      await fixture.testPeekNoMessage();
+    });
 
-// 	fixture = NewMessageQueueFixture(queue)
-
-// 	qOpnErr := queue.Open("")
-// 	if qOpnErr == nil {
-// 		queue.Clear("")
-// 	}
-
-// 	defer queue.Close("")
-
-// 	t.Run("RabbitMQMessageQueue:Send Receive Message", fixture.TestSendReceiveMessage)
-// 	queue.Clear("")
-// 	t.Run("RabbitMQMessageQueue:Receive Send Message", fixture.TestReceiveSendMessage)
-// 	queue.Clear("")
-// 	t.Run("RabbitMQMessageQueue:Receive And Complete Message", fixture.TestReceiveCompleteMessage)
-// 	queue.Clear("")
-// 	t.Run("RabbitMQMessageQueue:Receive And Abandon Message", fixture.TestReceiveAbandonMessage)
-// 	queue.Clear("")
-// 	t.Run("RabbitMQMessageQueue:Send Peek Message", fixture.TestSendPeekMessage)
-// 	queue.Clear("")
-// 	t.Run("RabbitMQMessageQueue:Peek No Message", fixture.TestPeekNoMessage)
-// 	queue.Clear("")
-// 	t.Run("RabbitMQMessageQueue:On Message", fixture.TestOnMessage)
-
-// }
+    test('RabbitMQMessageQueue:On Message', () async {
+      await fixture.testOnMessage();
+    });
+  });
+}

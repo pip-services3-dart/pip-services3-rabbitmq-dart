@@ -1,5 +1,6 @@
 import 'package:pip_services3_commons/pip_services3_commons.dart';
 import 'package:pip_services3_components/pip_services3_components.dart';
+import './RabbitMQMessageQueue.dart';
 
 class RabbitMQMessageQueueFactory extends Factory {
   static final descriptor = Descriptor('pip-services3-rabbitmq', 'factory', 'message-queue', 'rabbitmq', '1.0');
