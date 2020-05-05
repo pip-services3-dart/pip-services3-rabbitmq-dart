@@ -6,15 +6,15 @@ import 'package:pip_services3_components/pip_services3_components.dart';
 import 'package:pip_services3_messaging/pip_services3_messaging.dart';
 import '../connect/RabbitMQConnectionResolver.dart';
 
-///  Message _queue that sends and receives messages via MQTT message broker.
-///  MQTT is a popular light-weight protocol to communicate IoT devices.
+///  Message queue that sends and receives messages via RabbitMQ message broker.
+///  RabbitMQ is a popular light-weight protocol to communicate IoT devices.
 ///  Configuration parameters:
 
-///  [_connection(s)]:
-///  - [discovery_key]:               (optional) a key to retrieve the _connection from [IDiscovery]
+///  [connection(s)]:
+///  - [discovery_key]:               (optional) a key to retrieve the connection from [IDiscovery]
 ///  - [host]:                        host name or IP address
 ///  - [port]:                        port number
-///  - [uri]:                         resource URI or _connection string with all parameters in it
+///  - [uri]:                         resource URI or connection string with all parameters in it
 /// - [credential(s)]:
 ///  - [store_key]:                   (optional) a key to retrieve the credentials from [ICredentialStore]
 ///  - [username]:                    user name
@@ -24,20 +24,20 @@ import '../connect/RabbitMQConnectionResolver.dart';
 
 ///  - *:logger:*:*:1.0             (optional) [ILogger] components to pass log messages
 ///  - *:counters:*:*:1.0           (optional) [ICounters] components to pass collected measurements
-///  - *:discovery:*:*:1.0          (optional) [IDiscovery] services to resolve _connections
+///  - *:discovery:*:*:1.0          (optional) [IDiscovery] services to resolve connections
 ///  - *:credential-store:*:*:1.0   (optional) Credential stores to resolve credentials
 
-///  var _queue = new RabbitMQMessageQueue('my_queue');
-///  queue.configure(ConfigParams.FromTuples(
+///  var _queue = RabbitMQMessageQueue('my_queue');
+///  queue.configure(ConfigParams.fromTuples(
 ///  'topic', 'mytopic',
-///  'connection.protocol', 'mqtt'
+///  'connection.protocol', 'amqp'
 ///  'connection.host', 'localhost'
-///  'connection.port', 1883 ));
-///  queue.Open('123');
+///  'connection.port', 5672 ));
+///  await queue.open('123');
 
-///  queue.Send('123', new MessageEnvelop(null, 'mymessage', 'ABC'));
-///  queue.Receive('123', 0);
-///  queue.Complete('123', message);
+///  await queue.send('123', MessageEnvelop('123', 'mymessage', 'ABC'));
+///  await queue.receive('123', 0);
+///  await queue.complete('123', message);
 
 class RabbitMQMessageQueue extends MessageQueue {
   int _defaultCheckinterval = 1000;
@@ -111,7 +111,7 @@ class RabbitMQMessageQueue extends MessageQueue {
   }
 
   ///  Checks if the component is opened.
-  ///  Retruns : true if the component has been opened and false otherwise.
+  ///  Retruns true if the component has been opened and false otherwise.
   @override
   bool isOpen() {
     return _connection != null && _mqChanel != null;
