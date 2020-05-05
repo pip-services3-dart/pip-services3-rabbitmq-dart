@@ -1,406 +1,332 @@
-// package queues
+import 'dart:async';
 
-// import (
-// 	"sync"
-// 	"time"
+import "package:dart_amqp/dart_amqp.dart" as amqp;
+import 'package:pip_services3_commons/pip_services3_commons.dart';
+import 'package:pip_services3_components/pip_services3_components.dart';
+import 'package:pip_services3_messaging/pip_services3_messaging.dart';
+import '../connect/RabbitMQConnectionResolver.dart';
 
-// 	cconf "github.com/pip-services3-go/pip-services3-commons-go/config"
-// 	cerr "github.com/pip-services3-go/pip-services3-commons-go/errors"
-// 	cauth "github.com/pip-services3-go/pip-services3-components-go/auth"
-// 	ccon "github.com/pip-services3-go/pip-services3-components-go/connect"
-// 	msgqueues "github.com/pip-services3-go/pip-services3-messaging-go/queues"
-// 	mqcon "github.com/pip-services3-go/pip-services3-rabbitmq-go/connect"
-// 	rabbitmq "github.com/streadway/amqp"
-// )
+///  Message _queue that sends and receives messages via MQTT message broker.
+///  MQTT is a popular light-weight protocol to communicate IoT devices.
+///  Configuration parameters:
 
-// /*
-//    Message queue that sends and receives messages via MQTT message broker.
+///  [_connection(s)]:
+///  - [discovery_key]:               (optional) a key to retrieve the _connection from [IDiscovery]
+///  - [host]:                        host name or IP address
+///  - [port]:                        port number
+///  - [uri]:                         resource URI or _connection string with all parameters in it
+/// - [credential(s)]:
+///  - [store_key]:                   (optional) a key to retrieve the credentials from [ICredentialStore]
+///  - [username]:                    user name
+///  - [password]:                    user password
 
-//    MQTT is a popular light-weight protocol to communicate IoT devices.
+///  References:
 
-//    Configuration parameters:
+///  - *:logger:*:*:1.0             (optional) [ILogger] components to pass log messages
+///  - *:counters:*:*:1.0           (optional) [ICounters] components to pass collected measurements
+///  - *:discovery:*:*:1.0          (optional) [IDiscovery] services to resolve _connections
+///  - *:credential-store:*:*:1.0   (optional) Credential stores to resolve credentials
 
-//    - topic:                         name of MQTT topic to subscribe
+///  var _queue = new RabbitMQMessageQueue('my_queue');
+///  _queue.configure(ConfigParams.FromTuples(
+///  'topic', 'mytopic',
+///  '_connection.protocol', 'mqtt'
+///  '_connection.host', 'localhost'
+///  '_connection.port', 1883 ));
+///  _queue.Open('123');
 
-//    connection(s):
-//    - discovery_key:               (optional) a key to retrieve the connection from <a href="https://rawgit.com/pip-services3-dotnet/pip-services3-components-dotnet/master/doc/api/interface_pip_services_1_1_components_1_1_connect_1_1_i_discovery.html IDiscovery</a>
-//    - host:                        host name or IP address
-//    - port:                        port number
-//    - uri:                         resource URI or connection string with all parameters in it
+///  _queue.Send('123', new MessageEnvelop(null, 'mymessage', 'ABC'));
+///  _queue.Receive('123', 0);
+///  _queue.Complete('123', message);
 
-//    credential(s):
-//    - store_key:                   (optional) a key to retrieve the credentials from <a href="https://rawgit.com/pip-services3-dotnet/pip-services3-components-dotnet/master/doc/api/interface_pip_services_1_1_components_1_1_auth_1_1_i_credential_store.html ICredentialStore</a>
-//    - username:                    user name
-//    - password:                    user password
+class RabbitMQMessageQueue extends MessageQueue {
+  int _defaultCheckinterval = 1000;
+  amqp.Client _connection;
+  amqp.Channel _mqChanel;
+  RabbitMQConnectionResolver _optionsResolver;
+  String _queueName;
+  String _exchangeName;
+  amqp.Queue _queue;
+  amqp.Exchange _exchange;
+  amqp.ExchangeType _exchangeType = amqp.ExchangeType.FANOUT;
+  String _routingKey;
+  bool _persistent = false;
+  bool _exclusive = false;
+  bool _autoCreate = false;
+  bool _autoDelete = false;
+  bool _noQueue = false;
+  int interval;
 
-//    References:
+  /// Creates a new instance of the message _queue.
+  /// - [name]  (optional) a queue name.
+  /// - [config] (optional)
+  /// - [mqChanel] (optional) RrabbitMQ chanel
+  /// - [queue] (optional)  RrabbitMQ queue name
+  RabbitMQMessageQueue(String name,
+      {ConfigParams config, amqp.Channel mqChanel, String queue})
+      : super() {
+    capabilities = MessagingCapabilities(
+        true, true, true, true, true, false, true, false, true);
+    interval = _defaultCheckinterval;
+    _optionsResolver = RabbitMQConnectionResolver();
+    if (config != null) {
+      configure(config);
+    }
+    _mqChanel = mqChanel;
+    _queueName = queue;
+  }
 
-//    - *:logger:*:*:1.0             (optional) <a href="https://rawgit.com/pip-services3-dotnet/pip-services3-components-dotnet/master/doc/api/interface_pip_services_1_1_components_1_1_log_1_1_i_logger.html ILogger</a> components to pass log messages
-//    - *:counters:*:*:1.0           (optional) <a href="https://rawgit.com/pip-services3-dotnet/pip-services3-components-dotnet/master/doc/api/interface_pip_services_1_1_components_1_1_count_1_1_i_counters.html ICounters</a> components to pass collected measurements
-//    - *:discovery:*:*:1.0          (optional) <a href="https://rawgit.com/pip-services3-dotnet/pip-services3-components-dotnet/master/doc/api/interface_pip_services_1_1_components_1_1_connect_1_1_i_discovery.html IDiscovery</a> services to resolve connections
-//    - *:credential-store:*:*:1.0   (optional) Credential stores to resolve credentials
+  ///  Configures component by passing configuration parameters.
+  /// - [config] configuration parameters to be set.
+  @override
+  void configure(ConfigParams config) {
+    super.configure(config);
 
+    interval = config.getAsLongWithDefault('interval', _defaultCheckinterval);
 
+    _queueName = config.getAsStringWithDefault('_queue', _queueName);
+    _exchangeName = config.getAsStringWithDefault('_exchange', _exchangeName);
 
-//    var queue = new RabbitMQMessageQueue("myqueue");
-//    queue.configure(ConfigParams.FromTuples(
-//    "topic", "mytopic",
-//    "connection.protocol", "mqtt"
-//    "connection.host", "localhost"
-//    "connection.port", 1883 ));
-//    queue.Open("123");
+    _exchangeType = amqp.ExchangeType.valueOf(config.getAsStringWithDefault(
+        'options.exchange_type', _exchangeType.toString()));
+    _routingKey =
+        config.getAsStringWithDefault('options.routing_key', _routingKey);
+    _persistent =
+        config.getAsBooleanWithDefault('options.persistent', _persistent);
+    _exclusive =
+        config.getAsBooleanWithDefault('options.exclusive', _exclusive);
+    _autoCreate =
+        config.getAsBooleanWithDefault('options.auto_create', _autoCreate);
+    _autoDelete =
+        config.getAsBooleanWithDefault('options.auto_delete', _autoDelete);
+    _noQueue = config.getAsBooleanWithDefault('options.no_queue', _noQueue);
+  }
 
-//    queue.Send("123", new MessageEnvelop(null, "mymessage", "ABC"));
-//    queue.Receive("123", 0);
-//    queue.Complete("123", message);
-// */
+  void _checkOpened(String correlationId) {
+    if (_mqChanel == null) {
+      throw InvalidStateException(
+          correlationId, 'NOT_OPENED', 'The _queue is not opened');
+    }
+  }
 
-// type RabbitMQMessageQueue struct {
-// 	*msgqueues.MessageQueue
-// 	defaultCheckInterval int64
-// 	connection           *rabbitmq.Connection
-// 	mqChanel             *rabbitmq.Channel
-// 	optionsResolver      *mqcon.RabbitMQConnectionResolver
-// 	queue                string
-// 	exchange             string
-// 	exchangeType         string
-// 	routingKey           string
-// 	persistent           bool
-// 	exclusive            bool
-// 	autoCreate           bool
-// 	autoDelete           bool
-// 	noQueue              bool
-// 	cancel               chan bool
-// 	Interval             time.Duration
-// }
+  ///  Checks if the component is opened.
+  ///  Retruns : true if the component has been opened and false otherwise.
+  @override
+  bool isOpen() {
+    return _connection != null && _mqChanel != null;
+  }
 
-// //  Creates a new instance of the message queue.
-// //  name(optional) a queue name.
-// func NewEmptyRabbitMQMessageQueue(name string) *RabbitMQMessageQueue {
+  ///  Opens the component with given _connection and credential parameters.
+  ///  - [correlationId] (optional) transaction id to trace execution through call chain.
+  ///  - [connection] connection parameters
+  ///  - [credential] credential parameters
+  @override
+  Future openWithParams(String correlationId, ConnectionParams connection,
+      CredentialParams credential) async {
+    var options =
+        await _optionsResolver.compose(correlationId, connection, credential);
 
-// 	c := RabbitMQMessageQueue{
-// 		defaultCheckInterval: 1000,
-// 		exchange:             "",
-// 		exchangeType:         "fanout",
-// 		routingKey:           "",
-// 		persistent:           false,
-// 		exclusive:            false,
-// 		autoCreate:           false,
-// 		autoDelete:           false,
-// 		noQueue:              false,
-// 		cancel:               nil,
-// 	}
+    if (_queueName == null && _exchangeName == null) {
+      throw ConfigException(correlationId, 'NO_QUEUE',
+          'Queue or _exchange are not defined in _connection parameters');
+    }
 
-// 	c.MessageQueue = msgqueues.NewMessageQueue(name)
-// 	c.MessageQueue.IMessageQueue = &c
-// 	c.Capabilities = msgqueues.NewMessagingCapabilities(true, true, true, true, true, false, true, false, true)
-// 	c.Interval = time.Duration(c.defaultCheckInterval) * time.Millisecond
-// 	c.optionsResolver = mqcon.NewRabbitMQConnectionResolver()
-// 	return &c
-// }
+    var settings = amqp.ConnectionSettings();
+    var uri = Uri();
+    uri.resolve(options.get('uri'));
+    settings.host = uri.host;
+    settings.port = uri.port;
+    if (uri.hasAuthority) {
+      var auth = amqp.PlainAuthenticator(
+          options.get('username'), options.get('password'));
+      settings.authProvider = auth;
+    }
 
-// func NewRabbitMQMessageQueueFromConfig(name string, config *cconf.ConfigParams) *RabbitMQMessageQueue {
+    _connection = amqp.Client(settings: settings);
+    await _connection.connect();
 
-// 	c := NewEmptyRabbitMQMessageQueue(name)
-// 	if config != nil {
-// 		c.Configure(config)
-// 	}
-// 	return c
-// }
+    _mqChanel = await _connection.channel();
 
-// func NewRabbitMQMessageQueue(name string, mqChanel *rabbitmq.Channel, queue string) *RabbitMQMessageQueue {
+    // Automatically create _queue, _exchange and binding
+    if (_autoCreate) {
+      if (_exchangeName != null) {
+        _exchange = await _mqChanel.exchange(_exchangeName, _exchangeType,
+            durable: _persistent);
+      }
+      if (!_noQueue) {
+        if (_queueName == null) {
+          _queue = await _mqChanel.queue('',
+              durable: _persistent,
+              autoDelete: true,
+              exclusive: true,
+              noWait: false);
 
-// 	c := NewEmptyRabbitMQMessageQueue(name)
-// 	c.mqChanel = mqChanel
-// 	c.queue = queue
-// 	return c
-// }
+          _queueName = _queue.name;
+        } else {
+          _queue = await _mqChanel.queue(_queueName,
+              durable: _persistent,
+              exclusive: _exclusive,
+              autoDelete: _autoDelete,
+              noWait: false);
+        }
 
-// //  Configures component by passing configuration parameters.
-// //  - config configuration parameters to be set.
-// func (c *RabbitMQMessageQueue) Configure(config *cconf.ConfigParams) {
-// 	c.MessageQueue.Configure(config)
+        _queue = await _queue.bind(_exchange, _routingKey, noWait: false);
+      }
+    }
+    return null;
+  }
 
-// 	c.Interval = time.Duration(config.GetAsLongWithDefault("interval", int64(c.defaultCheckInterval))) * time.Millisecond
+  /// Close mwthod are closes component and frees used resources.
+  ///  Parameters:
+  ///   - [correlationId] (optional) transaction id to trace execution through call chain.
+  @override
+  Future close(String correlationId) async {
+    // if (_cancel != null) {
+    // 	_cancel <- true
+    // 	_cancel = null
+    // }
 
-// 	c.queue = config.GetAsStringWithDefault("queue", c.queue)
-// 	c.exchange = config.GetAsStringWithDefault("exchange", c.exchange)
+    if (_mqChanel != null) {
+      await _mqChanel.close();
+    }
 
-// 	c.exchangeType = config.GetAsStringWithDefault("options.exchange_type", c.exchangeType)
-// 	c.routingKey = config.GetAsStringWithDefault("options.routing_key", c.routingKey)
-// 	c.persistent = config.GetAsBooleanWithDefault("options.persistent", c.persistent)
-// 	c.exclusive = config.GetAsBooleanWithDefault("options.exclusive", c.exclusive)
-// 	c.autoCreate = config.GetAsBooleanWithDefault("options.auto_create", c.autoCreate)
-// 	c.autoDelete = config.GetAsBooleanWithDefault("options.auto_delete", c.autoDelete)
-// 	c.noQueue = config.GetAsBooleanWithDefault("options.noqueue", c.noQueue)
-// }
+    if (_connection != null) {
+      await _connection.close();
+    }
+    _connection = null;
+    _mqChanel = null;
+    logger.trace(correlationId, 'Closed _queue %s', [_queue]);
+  }
 
-// func (c *RabbitMQMessageQueue) checkOpened(String correlationId) error {
-// 	if c.mqChanel == nil {
-// 		return cerr.NewInvalidStateError(correlationId, "NOT_OPENED", "The queue is not opened")
-// 	}
-// 	return nil
-// }
+  /// ReadMessageCount method are reads the current number of messages in the _queue to be delivered.
+  /// Returns         Future that contains count number of messages
+  /// Throws error.
+  @override
+  Future<int> readMessageCount() async {
+    try {
+      _checkOpened('');
+    } catch (err) {
+      logger.error('', err, 'RabbitMQMessageQueue:MessageCount: ' + err);
+      rethrow;
+    }
 
-// //  Checks if the component is opened.
-// //  Retruns : true if the component has been opened and false otherwise.
-// func (c *RabbitMQMessageQueue) IsOpen() bool {
-// 	return c.connection != nil && c.mqChanel != nil
-// }
+    if (_queue == null) {
+      return 0;
+    }
 
-// //  Opens the component with given connection and credential parameters.
-// //  - correlationId (optional) transaction id to trace execution through call chain.
-// //  - connection connection parameters
-// //  - credential credential parameters
-// func (c *RabbitMQMessageQueue) OpenWithParams(String correlationId, connection *ccon.ConnectionParams, credential *cauth.CredentialParams) error {
+    return _queue.messageCount;
+  }
 
-// 	options, err := c.optionsResolver.Compose(correlationId, connection, credential)
-// 	if err != nil {
-// 		return err
-// 	}
+  MessageEnvelope _toMessage(amqp.AmqpMessage envelope) {
+    if (envelope == null) {
+      return null;
+    }
 
-// 	if c.queue == "" && c.exchange == "" {
-// 		return cerr.NewConfigError(correlationId,
-// 			"NO_QUEUE",
-// 			"Queue or exchange are not defined in connection parameters")
-// 	}
+    var message = MessageEnvelope(envelope.properties.corellationId,
+        envelope.properties.type, envelope.payloadAsString);
+    message.message_id = envelope.properties.messageId;
+    message.sent_time = DateTime.now();
+    message.setReference(envelope);
 
-// 	conn, err := rabbitmq.Dial(options.Get("uri"))
-// 	if err != nil {
-// 		return err
-// 	}
-// 	c.connection = conn
-// 	c.mqChanel, err = conn.Channel()
-// 	if err != nil {
-// 		return err
-// 	}
-// 	//c.cancel = make(chan bool)
+    return message;
+  }
 
-// 	// Automatically create queue, exchange and binding
-// 	if c.autoCreate {
-// 		if c.exchange != "" {
-// 			c.mqChanel.ExchangeDeclare(
-// 				c.exchange,
-// 				c.exchangeType,
-// 				c.persistent,
-// 				c.autoDelete,
-// 				false,
-// 				false,
-// 				nil,
-// 			)
-// 		}
+  ///  Send method are sends a message into the _queue.
+  ///  Parameters:
+  ///  - [correlationId] (optional) transaction id to trace execution through call chain.
+  ///  - [message] a message envelop to be sent.
+  @override
+  Future send(String correlationId, MessageEnvelope message) async {
+    _checkOpened(correlationId);
 
-// 		if !c.noQueue {
+    var messageProperties = amqp.MessageProperties();
+    messageProperties.contentType = 'text/plain';
 
-// 			if c.queue == "" {
-// 				res, err := c.mqChanel.QueueDeclare(
-// 					"",
-// 					c.persistent,
-// 					true,
-// 					true,
-// 					false,
-// 					nil,
-// 				)
-// 				if err != nil {
-// 					return err
-// 				}
-// 				c.queue = res.Name
-// 			} else {
-// 				c.mqChanel.QueueDeclare(
-// 					c.queue,
-// 					c.persistent,
-// 					c.exclusive,
-// 					c.autoDelete,
-// 					false,
-// 					nil,
-// 				)
-// 			}
+    if (message.correlation_id != null) {
+      messageProperties.corellationId = message.correlation_id;
+    }
+    if (message.message_id != null) {
+      messageProperties.messageId = message.message_id;
+    }
+    messageProperties.persistent = _persistent;
+    if (message.message_type != null) {
+      messageProperties.type = message.message_type;
+    }
+    _queue.publish(message.message, properties: messageProperties);
 
-// 			c.mqChanel.QueueBind(
-// 				c.queue,
-// 				c.routingKey,
-// 				c.exchange,
-// 				false,
-// 				nil,
-// 			)
+    counters.incrementOne('_queue.' + name + '.sent_messages');
+    logger.debug(
+        message.correlation_id, 'Sent message %s via %s', [message, this]);
+  }
 
-// 		}
-// 	}
-// 	return nil
-// }
+  ///  Peeks a single incoming message from the queue without removing it.
+  ///  If there are no messages available in the queue it returns null.
+  ///  Parameters:
+  ///  - [correlationId] (optional) transaction id to trace execution through call chain.
+  ///  Returns: a message
+  Future<MessageEnvelope> Peek(String correlationId) async {
+    _checkOpened(correlationId);
 
-// // Close mwthod are closes component and frees used resources.
-// //  Parameters:
-// //   - correlationId (optional) transaction id to trace execution through call chain.
-// func (c *RabbitMQMessageQueue) Close(String correlationId) (err error) {
+    var comsummer = await _queue.consume();
 
-// 	if c.cancel != nil {
-// 		c.cancel <- true
-// 		c.cancel = nil
-// 	}
+    comsummer.listen(onData);
 
-// 	if c.mqChanel != nil {
-// 		err = c.mqChanel.Close()
-// 		if err != nil {
-// 			return err
-// 		}
-// 	}
+    var envelope = _mqChanel.get(_queue, false);
 
-// 	if c.connection != nil {
-// 		err = c.connection.Close()
-// 	}
-// 	c.connection = nil
-// 	c.mqChanel = nil
-// 	c.Logger.Trace(correlationId, "Closed queue %s", c.queue)
-// 	return err
-// }
+    var message = _toMessage(envelope);
+    if (message != null) {
+      logger.trace(
+          message.correlation_id, 'Peeked message %s on %s', [message, name]);
+    }
 
-// // ReadMessageCount method are reads the current number of messages in the queue to be delivered.
-// // Returns count int64, err error
-// // number of messages or error.
-// func (c *RabbitMQMessageQueue) ReadMessageCount() (count int64, err error) {
+    return message;
+  }
 
-// 	err = c.checkOpened("")
-// 	if err != nil {
-// 		c.Logger.Error("", err, "RabbitMQMessageQueue:MessageCount: "+err.Error())
-// 		return 0, err
-// 	}
-
-// 	if c.queue == "" {
-// 		return 0, nil
-// 	}
-// 	queueInfo, err := c.mqChanel.QueueInspect(c.queue)
-// 	if err != nil {
-// 		c.Logger.Error("", err, "RabbitMQMessageQueue:MessageCount: "+err.Error())
-// 		return 0, err
-// 	}
-// 	return int64(queueInfo.Messages), nil
-
-// }
-
-// func (c *RabbitMQMessageQueue) toMessage(envelope *rabbitmq.Delivery) *msgqueues.MessageEnvelope {
-// 	if envelope == nil {
-// 		return nil
-// 	}
-
-// 	message := msgqueues.MessageEnvelope{
-// 		Message_id:     envelope.MessageId,
-// 		Message_type:   envelope.Type,
-// 		Correlation_id: envelope.CorrelationId,
-// 		Message:        string(envelope.Body),
-// 		Sent_time:      time.Now(),
-// 	}
-// 	message.SetReference(envelope)
-
-// 	return &message
-// }
-
-// //  Send method are sends a message into the queue.
-// //  Parameters:
-// //  - correlationId (optional) transaction id to trace execution through call chain.
-// //  - message a message envelop to be sent.
-// func (c *RabbitMQMessageQueue) Send(String correlationId, message *msgqueues.MessageEnvelope) (err error) {
-// 	err = c.checkOpened(correlationId)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	messageBuffer := rabbitmq.Publishing{
-// 		ContentType: "text/plain",
-// 	}
-
-// 	if message.Correlation_id != "" {
-// 		messageBuffer.CorrelationId = message.Correlation_id
-// 	}
-// 	if message.Message_id != "" {
-// 		messageBuffer.MessageId = message.Message_id
-// 	}
-// 	//messageBuffer.Persistent = c.persistent
-// 	if message.Message_type != "" {
-// 		messageBuffer.Type = message.Message_type
-// 	}
-
-// 	messageBuffer.Body = []byte(message.Message)
-
-// 	c.mqChanel.Publish(c.exchange, c.routingKey, false, false, messageBuffer)
-
-// 	c.Counters.IncrementOne("queue." + c.Name + ".sent_messages")
-// 	c.Logger.Debug(message.Correlation_id, "Sent message %s via %s", message, c)
-// 	return err
-// }
-
-// //  Peeks a single incoming message from the queue without removing it.
-// //  If there are no messages available in the queue it returns nil.
-// //  Parameters:
-// //  - correlationId (optional) transaction id to trace execution through call chain.
-// //  Returns: a message
-// func (c *RabbitMQMessageQueue) Peek(String correlationId) (result *msgqueues.MessageEnvelope, err error) {
-// 	err = c.checkOpened(correlationId)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	envelope, ok, err := c.mqChanel.Get(c.queue, false)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	if !ok {
-// 		return nil, nil
-// 	}
-
-// 	message := c.toMessage(&envelope)
-// 	if message != nil {
-// 		c.Logger.Trace(message.Correlation_id, "Peeked message %s on %s", message, c.Name)
-// 	}
-
-// 	return message, nil
-// }
-
-// //  PeekBatch method are peeks multiple incoming messages from the queue without removing them.
-// //  If there are no messages available in the queue it returns an empty list.
+// //  PeekBatch method are peeks multiple incoming messages from the _queue without removing them.
+// //  If there are no messages available in the _queue it returns an empty list.
 // //  Parameters:
 // //   - correlationId (optional) transaction id to trace execution through call chain.
 // //   - messageCount a maximum number of messages to peek.
 // //  Returns: a list with messages
-// func (c *RabbitMQMessageQueue) PeekBatch(String correlationId, messageCount int64) (result []msgqueues.MessageEnvelope, err error) {
-// 	err = c.checkOpened(correlationId)
-// 	if err != nil {
-// 		return nil, err
+// func (c *RabbitMQMessageQueue) PeekBatch(String correlationId, messageCount int64) (result []msg_queues.MessageEnvelope, err error) {
+// 	err = checkOpened(correlationId)
+// 	if err != null {
+// 		return null, err
 // 	}
-// 	err = nil
-// 	messages := make([]msgqueues.MessageEnvelope, 0)
+// 	err = null
+// 	messages := make([]msg_queues.MessageEnvelope, 0)
 // 	for messageCount > 0 {
-// 		envelope, ok, getErr := c.mqChanel.Get(c.queue, false)
-// 		if getErr != nil || !ok {
+// 		envelope, ok, getErr := _mqChanel.Get(_queue, false)
+// 		if getErr != null || !ok {
 // 			err = getErr
 // 			break
 // 		}
-// 		message := c.toMessage(&envelope)
+// 		message := toMessage(&envelope)
 // 		messages = append(messages, *message)
 // 		messageCount--
 // 	}
-// 	c.Logger.Trace(correlationId, "Peeked %s messages on %s", len(messages), c.Name)
+// 	Logger.Trace(correlationId, 'Peeked %s messages on %s', len(messages), Name)
 // 	return messages, err
 // }
 
-// //  Receive method are receives an incoming message and removes it from the queue.
+// //  Receive method are receives an incoming message and removes it from the _queue.
 // //  Parameters:
 // //  - correlationId (optional) transaction id to trace execution through call chain.
 // //  - waitTimeout a timeout in milliseconds to wait for a message to come.
 // //  Returns: a message
-// func (c *RabbitMQMessageQueue) Receive(String correlationId, waitTimeout time.Duration) (result *msgqueues.MessageEnvelope, err error) {
+// func (c *RabbitMQMessageQueue) Receive(String correlationId, waitTimeout time.Duration) (result *msg_queues.MessageEnvelope, err error) {
 
-// 	err = c.checkOpened(correlationId)
-// 	if err != nil {
-// 		return nil, err
+// 	err = checkOpened(correlationId)
+// 	if err != null {
+// 		return null, err
 // 	}
-// 	err = nil
+// 	err = null
 
-// 	if c.cancel == nil {
-// 		c.cancel = make(chan bool)
+// 	if _cancel == null {
+// 		_cancel = make(chan bool)
 // 	}
 // 	var envelope *rabbitmq.Delivery
-// 	wg := sync.WaitGroup{}
+// 	wg := synWaitGroup{}
 // 	wg.Add(1)
 
 // 	go func(timeout time.Duration) {
@@ -411,143 +337,143 @@
 // 				break
 // 			}
 // 			// Read the message and exit if received
-// 			env, ok, getErr := c.mqChanel.Get(c.queue, false) // true
-// 			if ok && getErr == nil {
+// 			env, ok, getErr := _mqChanel.Get(_queue, false) // true
+// 			if ok && getErr == null {
 // 				envelope = &env
 // 				break
 // 			}
 // 			select {
-// 			case <-time.After(c.Interval):
-// 			case <-c.cancel:
+// 			case <-time.After(interval):
+// 			case <-_cancel:
 // 				{
 // 					stop = true
 // 				}
 // 			}
-// 			timeout = timeout - c.Interval
+// 			timeout = timeout - interval
 // 		}
 
-// 		close(c.cancel)
-// 		c.cancel = nil
+// 		close(_cancel)
+// 		_cancel = null
 // 	}(waitTimeout)
 
 // 	wg.Wait()
-// 	message := c.toMessage(envelope)
+// 	message := toMessage(envelope)
 
-// 	if message != nil {
-// 		c.Counters.IncrementOne("queue." + c.Name + ".received_messages")
-// 		c.Logger.Debug(message.Correlation_id, "Received message %s via %s", message, c)
+// 	if message != null {
+// 		Counters.IncrementOne('_queue.' + Name + '.received_messages')
+// 		Logger.Debug(message.Correlation_id, 'Received message %s via %s', message, c)
 // 	}
 
-// 	return message, nil
+// 	return message, null
 // }
 
-// //  Renews a lock on a message that makes it invisible from other receivers in the queue.
+// //  Renews a lock on a message that makes it invisible from other receivers in the _queue.
 // //  This method is usually used to extend the message processing time.
 // //  Important: This method is not supported by MQTT.
 // //  Parameters:
 // //  - message a message to extend its lock.
 // //  - lockTimeout a locking timeout in milliseconds.
-// func (c *RabbitMQMessageQueue) RenewLock(message *msgqueues.MessageEnvelope, lockTimeout time.Duration) (err error) {
+// func (c *RabbitMQMessageQueue) RenewLock(message *msg_queues.MessageEnvelope, lockTimeout time.Duration) (err error) {
 
 // 	// Operation is not supported
-// 	return nil
+// 	return null
 // }
 
-// //  Returnes message into the queue and makes it available for all subscribers to receive it again.
+// //  Returnes message into the _queue and makes it available for all subscribers to receive it again.
 // //  This method is usually used to return a message which could not be processed at the moment
 // //  to repeat the attempt.Messages that cause unrecoverable errors shall be removed permanently
-// //  or/and send to dead letter queue.
+// //  or/and send to dead letter _queue.
 // //  Important: This method is not supported by MQTT.
 // //  Parameters:
 // //  - message a message to return.
-// func (c *RabbitMQMessageQueue) Abandon(message *msgqueues.MessageEnvelope) (err error) {
-// 	err = c.checkOpened("")
-// 	if err != nil {
+// func (c *RabbitMQMessageQueue) Abandon(message *msg_queues.MessageEnvelope) (err error) {
+// 	err = checkOpened('')
+// 	if err != null {
 // 		return err
 // 	}
-// 	err = nil
+// 	err = null
 
 // 	// Make the message immediately visible
 // 	envelope, ok := message.GetReference().(*rabbitmq.Delivery)
 // 	if ok {
-// 		err = c.mqChanel.Nack(envelope.DeliveryTag, false, true)
-// 		if err != nil {
+// 		err = _mqChanel.Nack(envelope.DeliveryTag, false, true)
+// 		if err != null {
 // 			return err
 // 		}
-// 		message.SetReference(nil)
-// 		c.Logger.Trace(message.Correlation_id, "Abandoned message %s at %c", message, c.Name)
+// 		message.SetReference(null)
+// 		Logger.Trace(message.Correlation_id, 'Abandoned message %s at %c', message, Name)
 // 	}
-// 	return nil
+// 	return null
 // }
 
-// //  Permanently removes a message from the queue.
+// //  Permanently removes a message from the _queue.
 // //  This method is usually used to remove the message after successful processing.
 // //  Important: This method is not supported by MQTT.
 // //  Parameters:
 // //  - message a message to remove.
-// func (c *RabbitMQMessageQueue) Complete(message *msgqueues.MessageEnvelope) (err error) {
-// 	err = c.checkOpened("")
-// 	if err != nil {
+// func (c *RabbitMQMessageQueue) Complete(message *msg_queues.MessageEnvelope) (err error) {
+// 	err = checkOpened('')
+// 	if err != null {
 // 		return err
 // 	}
-// 	err = nil
+// 	err = null
 // 	envelope, ok := message.GetReference().(*rabbitmq.Delivery)
 // 	if ok {
-// 		c.mqChanel.Ack(envelope.DeliveryTag, false)
-// 		message.SetReference(nil)
-// 		c.Logger.Trace(message.Correlation_id, "Completed message %s at %s", message, c.Name)
+// 		_mqChanel.Ack(envelope.DeliveryTag, false)
+// 		message.SetReference(null)
+// 		Logger.Trace(message.Correlation_id, 'Completed message %s at %s', message, Name)
 // 	}
-// 	return nil
+// 	return null
 // }
 
-// //  Permanently removes a message from the queue and sends it to dead letter queue.
+// //  Permanently removes a message from the _queue and sends it to dead letter _queue.
 // //  Important: This method is not supported by MQTT.
 // //  Parameters:
 // //  - message a message to be removed.
 // //  Returns:
-// func (c *RabbitMQMessageQueue) MoveToDeadLetter(message *msgqueues.MessageEnvelope) (err error) {
-// 	err = c.checkOpened("")
-// 	if err != nil {
+// func (c *RabbitMQMessageQueue) MoveToDeadLetter(message *msg_queues.MessageEnvelope) (err error) {
+// 	err = checkOpened('')
+// 	if err != null {
 // 		return err
 // 	}
-// 	err = nil
+// 	err = null
 
 // 	// Operation is not supported
 
-// 	return nil
+// 	return null
 // }
 
-// //  Listens for incoming messages and blocks the current thread until queue is closed.
+// //  Listens for incoming messages and blocks the current thread until _queue is closed.
 // // Parameters:
 // //  - correlationId (optional) transaction id to trace execution through call chain.
 // //  - callback
 // //  Returns:
-// func (c *RabbitMQMessageQueue) Listen(String correlationId, receiver msgqueues.IMessageReceiver) {
-// 	err := c.checkOpened("")
-// 	if err != nil {
-// 		c.Logger.Error(correlationId, err, "RabbitMQMessageQueue:Listen: Can't start listen "+err.Error())
+// func (c *RabbitMQMessageQueue) Listen(String correlationId, receiver msg_queues.IMessageReceiver) {
+// 	err := checkOpened('')
+// 	if err != null {
+// 		Logger.Error(correlationId, err, 'RabbitMQMessageQueue:Listen: Can't start listen '+err.Error())
 // 		return
 // 	}
 
-// 	c.Logger.Debug(correlationId, "Started listening messages at %s", c.Name)
+// 	Logger.Debug(correlationId, 'Started listening messages at %s', Name)
 
-// 	// Create new cancelation token
-// 	if c.cancel == nil {
-// 		c.cancel = make(chan bool)
+// 	// Create new _cancelation token
+// 	if _cancel == null {
+// 		_cancel = make(chan bool)
 // 	}
 
-// 	messageChannel, err := c.mqChanel.Consume(
-// 		c.queue,
-// 		c.exchange,
+// 	messageChannel, err := _mqChanel.Consume(
+// 		_queue,
+// 		_exchange,
 // 		false,
 // 		false,
 // 		false,
 // 		false,
-// 		nil,
+// 		null,
 // 	)
 
-// 	if err != nil {
-// 		c.Logger.Error(correlationId, err, "RabbitMQMessageQueue:Listen: Can't consume to queue"+err.Error())
+// 	if err != null {
+// 		Logger.Error(correlationId, err, 'RabbitMQMessageQueue:Listen: Can't consume to _queue'+err.Error())
 // 		return
 // 	}
 
@@ -556,25 +482,25 @@
 // 		for !stop {
 
 // 			select {
-// 			case <-c.cancel:
+// 			case <-_cancel:
 // 				{
 // 					stop = true
 // 				}
 // 			case msg := <-messageChannel:
 // 				{
-// 					message := c.toMessage(&msg)
-// 					c.Counters.IncrementOne("queue." + c.Name + ".received_messages")
-// 					c.Logger.Debug(message.Correlation_id, "Received message %s via %s", message, c.Name)
+// 					message := toMessage(&msg)
+// 					Counters.IncrementOne('_queue.' + Name + '.received_messages')
+// 					Logger.Debug(message.Correlation_id, 'Received message %s via %s', message, Name)
 // 					recvErr := receiver.ReceiveMessage(message, c)
-// 					if recvErr != nil {
-// 						c.Logger.Error(message.Correlation_id, recvErr, "Processing received message %s error in queue %s", message, c.Name)
+// 					if recvErr != null {
+// 						Logger.Error(message.Correlation_id, recvErr, 'Processing received message %s error in _queue %s', message, Name)
 // 					}
-// 					c.mqChanel.Ack(msg.DeliveryTag, false)
+// 					_mqChanel.Ack(msg.DeliveryTag, false)
 // 				}
 // 			}
 // 		}
-// 		close(c.cancel)
-// 		c.cancel = nil
+// 		close(_cancel)
+// 		_cancel = null
 // 	}()
 
 // }
@@ -584,8 +510,8 @@
 // //  Parameters:
 // //  - correlationId (optional) transaction id to trace execution through call chain.
 // func (c *RabbitMQMessageQueue) EndListen(String correlationId) {
-// 	if c.cancel != nil {
-// 		c.cancel <- true
+// 	if _cancel != null {
+// 		_cancel <- true
 // 	}
 // }
 
@@ -594,17 +520,18 @@
 // //  - correlationId (optional) transaction id to trace execution through call chain.
 // //  Returns:
 // func (c *RabbitMQMessageQueue) Clear(String correlationId) (err error) {
-// 	err = c.checkOpened("")
-// 	if err != nil {
+// 	err = checkOpened('')
+// 	if err != null {
 // 		return err
 // 	}
-// 	err = nil
+// 	err = null
 // 	count := 0
-// 	if c.queue != "" {
-// 		count, err = c.mqChanel.QueuePurge(c.queue, false)
+// 	if _queue != '' {
+// 		count, err = _mqChanel.QueuePurge(_queue, false)
 // 	}
-// 	if err == nil {
-// 		c.Logger.Trace(correlationId, "Cleared  %s messages in queue %s", count, c.Name)
+// 	if err == null {
+// 		Logger.Trace(correlationId, 'Cleared  %s messages in _queue %s', count, Name)
 // 	}
 // 	return err
 // }
+}

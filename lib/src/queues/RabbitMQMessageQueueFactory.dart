@@ -1,35 +1,25 @@
-// package queues
+import 'package:pip_services3_commons/pip_services3_commons.dart';
+import 'package:pip_services3_components/pip_services3_components.dart';
 
-// import (
-// 	cconf "github.com/pip-services3-go/pip-services3-commons-go/config"
-// 	cref "github.com/pip-services3-go/pip-services3-commons-go/refer"
-// 	cbuild "github.com/pip-services3-go/pip-services3-components-go/build"
-// )
+class RabbitMQMessageQueueFactory extends Factory {
+  static final descriptor = Descriptor('pip-services3-rabbitmq', 'factory', 'message-queue', 'rabbitmq', '1.0');
+	static final MemoryQueueDescriptor = Descriptor('pip-services3-rabbitmq', 'message-queue', 'rabbitmq', '*', '*');
 
-// type RabbitMQMessageQueueFactory struct {
-// 	*cbuild.Factory
-// 	Descriptor            *cref.Descriptor
-// 	MemoryQueueDescriptor *cref.Descriptor
+	ConfigParams config;
 
-// 	config *cconf.ConfigParams
-// }
 
-// func NewRabbitMQMessageQueueFactory() *RabbitMQMessageQueueFactory {
-// 	c := RabbitMQMessageQueueFactory{}
-// 	c.Factory = cbuild.NewFactory()
-// 	c.Descriptor = cref.NewDescriptor("pip-services3-rabbitmq", "factory", "message-queue", "rabbitmq", "1.0")
-// 	c.MemoryQueueDescriptor = cref.NewDescriptor("pip-services3-rabbitmq", "message-queue", "rabbitmq", "*", "*")
+ RabbitMQMessageQueueFactory() :super() {
 
-// 	c.Register(c.MemoryQueueDescriptor, func() interface{} {
-// 		queue := NewEmptyRabbitMQMessageQueue(c.MemoryQueueDescriptor.Name())
-// 		if c.config != nil {
-// 			queue.Configure(c.config)
-// 		}
-// 		return queue
-// 	})
-// 	return &c
-// }
+	register(MemoryQueueDescriptor, (locator) {
+		var queue = RabbitMQMessageQueue(locator.getName());
+		if (config != null) {
+			queue.configure(config);
+		}
+		return queue;
+	});
+}
 
-// func (c *RabbitMQMessageQueueFactory) Configure(config *cconf.ConfigParams) {
-// 	c.config = config
-// }
+void configure(ConfigParams config ) {
+	this.config = config;
+}
+}

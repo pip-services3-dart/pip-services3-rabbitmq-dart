@@ -11,6 +11,7 @@ dependencies:
   pip_services3_commons: ">=1.0.4 <2.0.0"
   pip_services3_components: ">=1.0.2 <2.0.0"
   pip_services3_messaging: ">=1.0.0 <2.0.0"
+  dart_amqp: ^0.1.4
  
 dev_dependencies:
   test: '>=1.14.2 <2.0.0'
