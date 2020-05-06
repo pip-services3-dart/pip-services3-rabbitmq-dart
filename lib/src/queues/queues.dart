@@ -1,2 +1,2 @@
 export './RabbitMQMessageQueue.dart';
-export './RabbitMQMEssageQueueFactory.dart';
+export './RabbitMQMessageQueueFactory.dart';

@@ -29,8 +29,8 @@ void main() {
         //'connection.protocol', 'amqp',
         'connection.host', rabbitmqHost,
         'connection.port', rabbitmqPort,
-        //'credential.username', rabbitmqUser,
-        //'credential.password', rabbitmqPassword,
+        'credential.username', rabbitmqUser,
+        'credential.password', rabbitmqPassword,
       ]);
       queue = RabbitMQMessageQueue('testQueue');
       queue.configure(queueConfig);
@@ -47,29 +47,29 @@ void main() {
       await queue.clear('');
     });
 
-    test('RabbitMQMessageQueue:Send Receive Message', () async {
-      await fixture.testSendReceiveMessage();
-    });
+    // test('RabbitMQMessageQueue:Send Receive Message', () async {
+    //   await fixture.testSendReceiveMessage();
+    // });
 
-    test('RabbitMQMessageQueue:Receive Send Message', () async {
-      await fixture.testReceiveSendMessage();
-    });
+    // test('RabbitMQMessageQueue:Receive Send Message', () async {
+    //   await fixture.testReceiveSendMessage();
+    // });
 
-    test('RabbitMQMessageQueue:Receive And Complete Message', () async {
-      await fixture.testReceiveCompleteMessage();
-    });
+    // test('RabbitMQMessageQueue:Receive And Complete Message', () async {
+    //   await fixture.testReceiveCompleteMessage();
+    // });
 
-    test('RabbitMQMessageQueue:Receive And Abandon Message', () async {
-      await fixture.testReceiveAbandonMessage();
-    });
+    // test('RabbitMQMessageQueue:Receive And Abandon Message', () async {
+    //   await fixture.testReceiveAbandonMessage();
+    // });
 
-    test('RabbitMQMessageQueue:Send Peek Message', () async {
-      await fixture.testSendPeekMessage();
-    });
+    // test('RabbitMQMessageQueue:Send Peek Message', () async {
+    //   await fixture.testSendPeekMessage();
+    // });
 
-    test('RabbitMQMessageQueue:Peek No Message', () async {
-      await fixture.testPeekNoMessage();
-    });
+    // test('RabbitMQMessageQueue:Peek No Message', () async {
+    //   await fixture.testPeekNoMessage();
+    // });
 
     test('RabbitMQMessageQueue:On Message', () async {
       await fixture.testOnMessage();

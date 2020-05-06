@@ -7,9 +7,9 @@ import 'package:pip_services3_messaging/pip_services3_messaging.dart';
 import '../connect/RabbitMQConnectionResolver.dart';
 
 ///  Message queue that sends and receives messages via RabbitMQ message broker.
-///  RabbitMQ is a popular light-weight protocol to communicate IoT devices.
+///  RabbitMQ is a popular light-weight protocol to communicate.
 ///  Configuration parameters:
-
+///
 ///  [connection(s)]:
 ///  - [discovery_key]:               (optional) a key to retrieve the connection from [IDiscovery]
 ///  - [host]:                        host name or IP address
@@ -19,28 +19,28 @@ import '../connect/RabbitMQConnectionResolver.dart';
 ///  - [store_key]:                   (optional) a key to retrieve the credentials from [ICredentialStore]
 ///  - [username]:                    user name
 ///  - [password]:                    user password
-
+///
 ///  References:
-
+///
 ///  - *:logger:*:*:1.0             (optional) [ILogger] components to pass log messages
 ///  - *:counters:*:*:1.0           (optional) [ICounters] components to pass collected measurements
 ///  - *:discovery:*:*:1.0          (optional) [IDiscovery] services to resolve connections
 ///  - *:credential-store:*:*:1.0   (optional) Credential stores to resolve credentials
-
-///  var _queue = RabbitMQMessageQueue('my_queue');
-///  queue.configure(ConfigParams.fromTuples(
+///
+///  var queue = RabbitMQMessageQueue('my_queue');
+///  queue.configure(ConfigParams.fromTuples([
 ///  'topic', 'mytopic',
 ///  'connection.protocol', 'amqp'
 ///  'connection.host', 'localhost'
-///  'connection.port', 5672 ));
+///  'connection.port', 5672 ]));
 ///  await queue.open('123');
-
+///
 ///  await queue.send('123', MessageEnvelop('123', 'mymessage', 'ABC'));
 ///  await queue.receive('123', 0);
 ///  await queue.complete('123', message);
 
 class RabbitMQMessageQueue extends MessageQueue {
-  int _defaultCheckinterval = 1000;
+  final _defaultCheckinterval = 1000;
   amqp.Client _connection;
   amqp.Channel _mqChanel;
   RabbitMQConnectionResolver _optionsResolver;
@@ -67,7 +67,7 @@ class RabbitMQMessageQueue extends MessageQueue {
       {ConfigParams config, amqp.Channel mqChanel, String queue})
       : super() {
     capabilities = MessagingCapabilities(
-        true, true, true, true, true, false, true, false, true);
+        true, true, false, false, false, false, true, false, true);
     interval = _defaultCheckinterval;
     _optionsResolver = RabbitMQConnectionResolver();
     if (config != null) {
@@ -85,8 +85,8 @@ class RabbitMQMessageQueue extends MessageQueue {
 
     interval = config.getAsLongWithDefault('interval', _defaultCheckinterval);
 
-    _queueName = config.getAsStringWithDefault('_queue', _queueName);
-    _exchangeName = config.getAsStringWithDefault('_exchange', _exchangeName);
+    _queueName = config.getAsStringWithDefault('queue', _queueName);
+    _exchangeName = config.getAsStringWithDefault('exchange', _exchangeName);
 
     _exchangeType = amqp.ExchangeType.valueOf(config.getAsStringWithDefault(
         'options.exchange_type', _exchangeType.toString()));
@@ -121,6 +121,8 @@ class RabbitMQMessageQueue extends MessageQueue {
   ///  - [correlationId] (optional) transaction id to trace execution through call chain.
   ///  - [connection] connection parameters
   ///  - [credential] credential parameters
+  /// Return            Future that recive null if all ok
+  /// Throws error
   @override
   Future openWithParams(String correlationId, ConnectionParams connection,
       CredentialParams credential) async {
@@ -129,15 +131,16 @@ class RabbitMQMessageQueue extends MessageQueue {
 
     if (_queueName == null && _exchangeName == null) {
       throw ConfigException(correlationId, 'NO_QUEUE',
-          'Queue or _exchange are not defined in _connection parameters');
+          'Queue or exchange are not defined in connection parameters');
     }
 
     var settings = amqp.ConnectionSettings();
     var uri = Uri();
-    uri.resolve(options.get('uri'));
+    var url = options.get('uri');
+    uri = uri.resolve(url);
     settings.host = uri.host;
     settings.port = uri.port;
-    if (uri.hasAuthority) {
+    if (uri.userInfo != '') {
       var auth = amqp.PlainAuthenticator(
           options.get('username'), options.get('password'));
       settings.authProvider = auth;
@@ -148,7 +151,7 @@ class RabbitMQMessageQueue extends MessageQueue {
 
     _mqChanel = await _connection.channel();
 
-    // Automatically create _queue, _exchange and binding
+    // Automatically create queue, exchange and binding
     if (_autoCreate) {
       if (_exchangeName != null) {
         _exchange = await _mqChanel.exchange(_exchangeName, _exchangeType,
@@ -177,16 +180,13 @@ class RabbitMQMessageQueue extends MessageQueue {
     return null;
   }
 
-  /// Close mwthod are closes component and frees used resources.
+  /// Close method are closes component and frees used resources.
   ///  Parameters:
   ///   - [correlationId] (optional) transaction id to trace execution through call chain.
+  /// Return            Future that recive null if all ok
+  /// Throws error
   @override
   Future close(String correlationId) async {
-    // if (_cancel != null) {
-    // 	_cancel <- true
-    // 	_cancel = null
-    // }
-
     if (_mqChanel != null) {
       await _mqChanel.close();
     }
@@ -236,6 +236,8 @@ class RabbitMQMessageQueue extends MessageQueue {
   ///  Parameters:
   ///  - [correlationId] (optional) transaction id to trace execution through call chain.
   ///  - [message] a message envelop to be sent.
+  /// Return            Future that recive null if all ok
+  /// Throws error
   @override
   Future send(String correlationId, MessageEnvelope message) async {
     _checkOpened(correlationId);
@@ -262,163 +264,134 @@ class RabbitMQMessageQueue extends MessageQueue {
 
   ///  Peeks a single incoming message from the queue without removing it.
   ///  If there are no messages available in the queue it returns null.
+  ///  Important: This method are not supported in this release!
   ///  Parameters:
   ///  - [correlationId] (optional) transaction id to trace execution through call chain.
-  ///  Returns: a message
+  /// Return            Future that recive a message
+  /// Throws error
+  @override
   Future<MessageEnvelope> peek(String correlationId) async {
-    _checkOpened(correlationId);
+    // _checkOpened(correlationId);
 
-    var comsummer = await _queue.consume();
+    // var envelope = _mqChanel.get(_queue, false);
+    // var message = _toMessage(envelope);
+    // if (message != null) {
+    //   logger.trace(
+    //       message.correlation_id, 'Peeked message %s on %s', [message, name]);
+    // }
+    // return message;
 
-    comsummer.listen(onData);
-
-    var envelope = _mqChanel.get(_queue, false);
-
-    var message = _toMessage(envelope);
-    if (message != null) {
-      logger.trace(
-          message.correlation_id, 'Peeked message %s on %s', [message, name]);
-    }
-
-    return message;
+    throw Exception('Method "peek" are not supported!');
   }
 
-///  PeekBatch method are peeks multiple incoming messages from the _queue without removing them.
-///  If there are no messages available in the _queue it returns an empty list.
-///  Parameters:
-///   - [correlationId] (optional) transaction id to trace execution through call chain.
-///   - [messageCount] a maximum number of messages to peek.
-///  Returns: a list with messages
-@override
-Future<List<MessageEnvelope>> peekBatch(String correlationId, int messageCount)async  {
- _checkOpened(correlationId);
-	
-	
-	var messages = <MessageEnvelope>[];
-	for (;messageCount > 0;) {
-		var envelope = _mqChanel.get(_queue, false);
-		// if getErr != null || !ok {
-		// 	err = getErr
-		// 	break
-		// }
-		var message = _toMessage(envelope);
-		messages.add(message);
-		messageCount--;
-	}
-	logger.trace(correlationId, 'Peeked %s messages on %s', [messages.length, name]);
-	return messages;
-}
+  ///  PeekBatch method are peeks multiple incoming messages from the _queue without removing them.
+  ///  If there are no messages available in the _queue it returns an empty list.
+  ///  Parameters:
+  ///   - [correlationId] (optional) transaction id to trace execution through call chain.
+  ///   - [messageCount] a maximum number of messages to peek.
+  /// Return            Future that recive  a list with messages
+  /// Throws error
+  @override
+  Future<List<MessageEnvelope>> peekBatch(
+      String correlationId, int messageCount) async {
+//  _checkOpened(correlationId);
+// 	var messages = <MessageEnvelope>[];
+// 	for (;messageCount > 0;) {
+// 		var envelope = _mqChanel.get(_queue, false);
+// 		// if getErr != null || !ok {
+// 		// 	err = getErr
+// 		// 	break
+// 		// }
+// 		var message = _toMessage(envelope);
+// 		messages.add(message);
+// 		messageCount--;
+// 	}
+// 	logger.trace(correlationId, 'Peeked %s messages on %s', [messages.length, name]);
+// 	return messages;
+    throw Exception('Method "peekBatch" are not supported!');
+  }
 
-//  Receive method are receives an incoming message and removes it from the _queue.
-//  Parameters:
-//  - correlationId (optional) transaction id to trace execution through call chain.
-//  - waitTimeout a timeout in milliseconds to wait for a message to come.
-//  Returns: a message
-@override
-Future<MessageEnvelope> receive(String correlationId, int waitTimeout) {
+  ///  Receive method are receives an incoming message and removes it from the _queue.
+  ///  Parameters:
+  ///  - [correlationId] (optional) transaction id to trace execution through call chain.
+  ///  - [waitTimeout] a timeout in milliseconds to wait for a message to come.
+  /// Return            Future that recive a message
+  /// Throws error
+  @override
+  Future<MessageEnvelope> receive(String correlationId, int waitTimeout) async {
+    // _checkOpened(correlationId);
+    // var message = _toMessage(envelope);
+    // if (message != null) {
+    //   counters.incrementOne('_queue.' + name + '.received_messages');
+    //   logger.debug(message.correlation_id, 'Received message %s via %s',
+    //       [message, this]);
+    // }
+    // return message;
+    throw Exception('Method "receive" are not supported!');
+  }
 
-	_checkOpened(correlationId);
-	
-	if _cancel == null {
-		_cancel = make(chan bool)
-	}
-	var envelope *rabbitmq.Delivery
-	wg := synWaitGroup{}
-	wg.Add(1)
+  ///  Renews a lock on a message that makes it invisible from other receivers in the _queue.
+  ///  This method is usually used to extend the message processing time.
+  ///  Important: This method is not supported by RabbitMQ.
+  ///  Parameters:
+  ///  - [message] a message to extend its lock.
+  ///  - [lockTimeout] a locking timeout in milliseconds.
+  /// Return            Future that recive a null if all ok
+  /// Throws error
+  @override
+  Future renewLock(MessageEnvelope message, int lockTimeout) async {
+    // Operation is not supported
+    return null;
+  }
 
-	go func(timeout time.Duration) {
-		defer wg.Done()
-		stop := false
-		for !stop {
-			if timeout <= 0 {
-				break
-			}
-			// Read the message and exit if received
-			env, ok, getErr := _mqChanel.Get(_queue, false) // true
-			if ok && getErr == null {
-				envelope = &env
-				break
-			}
-			select {
-			case <-time.After(interval):
-			case <-_cancel:
-				{
-					stop = true
-				}
-			}
-			timeout = timeout - interval
-		}
+  ///  Returnes message into the queue and makes it available for all subscribers to receive it again.
+  ///  This method is usually used to return a message which could not be processed at the moment
+  ///  to repeat the attempt.Messages that cause unrecoverable errors shall be removed permanently
+  ///  or/and send to dead letter _queue.
+  ///  Parameters:
+  ///  - [message] a message to return.
+  /// Return            Future that recive a null if all ok
+  /// Throws error
+  @override
+  Future abandon(MessageEnvelope message) async {
+    _checkOpened('');
 
-		close(_cancel)
-		_cancel = null
-	}(waitTimeout)
+    // Make the message immediately visible
+    amqp.AmqpMessage envelope = message.getReference();
+    if (envelope != null) {
+      envelope.reject(true);
+      message.setReference(null);
+      logger.trace(message.correlation_id, 'Abandoned message %s at %c',
+          [message, name]);
+    }
+    return null;
+  }
 
-	wg.Wait()
-	message := toMessage(envelope)
+  ///  Permanently removes a message from the _queue.
+  ///  This method is usually used to remove the message after successful processing.
+  ///  Parameters:
+  ///  - [message] a message to remove.
+  /// Return            Future that recive a null if all done
+  /// Throws error
+  @override
+  Future complete(MessageEnvelope message) async {
+    _checkOpened('');
 
-	if message != null {
-		Counters.IncrementOne('_queue.' + Name + '.received_messages')
-		Logger.Debug(message.Correlation_id, 'Received message %s via %s', message, c)
-	}
-
-	return message;
-}
-
-///  Renews a lock on a message that makes it invisible from other receivers in the _queue.
-///  This method is usually used to extend the message processing time.
-///  Important: This method is not supported by MQTT.
-///  Parameters:
-///  - [message] a message to extend its lock.
-///  - [lockTimeout] a locking timeout in milliseconds.
-@override
-Future renewLock(MessageEnvelope message , int lockTimeout) async{
-	// Operation is not supported
-	return null;
-}
-
-///  Returnes message into the _queue and makes it available for all subscribers to receive it again.
-///  This method is usually used to return a message which could not be processed at the moment
-///  to repeat the attempt.Messages that cause unrecoverable errors shall be removed permanently
-///  or/and send to dead letter _queue.
-///  Parameters:
-///  - [message] a message to return.
-@override
-Future abandon(MessageEnvelope message) async{
- _checkOpened('');
-	
-	// Make the message immediately visible
-	var envelope = message.getReference();
-	if (envelope != null) {
-		 _mqChanel.nack(envelope.DeliveryTag, false, true);
-	
-		message.setReference(null);
-		logger.trace(message.correlation_id, 'Abandoned message %s at %c', [message, name]);
-	}
-	return null;
-}
-
-///  Permanently removes a message from the _queue.
-///  This method is usually used to remove the message after successful processing.
-///  Parameters:
-///  - [message] a message to remove.
-@override
-Future complete(MessageEnvelope message ) async{
- _checkOpened('');
-	
-	var envelope = message.getReference();
-	if (envelope != null) {
-		_mqChanel.ack(envelope.deliveryTag);
-		message.setReference(null);
-		logger.trace(message.correlation_id, 'Completed message %s at %s', [message, name]);
-	}
-
-}
+    amqp.AmqpMessage envelope = message.getReference();
+    if (envelope != null) {
+      envelope.ack();
+      message.setReference(null);
+      logger.trace(message.correlation_id, 'Completed message %s at %s',
+          [message, name]);
+    }
+  }
 
   ///  Permanently removes a message from the _queue and sends it to dead letter _queue.
-  ///  Important: This method is not supported by MQTT.
+  ///  Important: This method is not supported by RabbitMQ.
   ///  Parameters:
   ///  - [message] a message to be removed.
-  ///  throw error
+  /// Return            Future that recive a null when all done
+  /// Throws error
   @override
   Future moveToDeadLetter(MessageEnvelope message) async {
     _checkOpened('');
@@ -428,7 +401,7 @@ Future complete(MessageEnvelope message ) async{
   ///  Listens for incoming messages and blocks the current thread until _queue is closed.
   /// Parameters:
   ///  - [correlationId] (optional) transaction id to trace execution through call chain.
-  ///  Returns            Future that recive null on compleate 
+  ///  Returns            Future that recive null on compleate
   /// Throws error
   @override
   Future listen(String correlationId, IMessageReceiver receiver) async {
@@ -471,17 +444,24 @@ Future complete(MessageEnvelope message ) async{
   ///  When this method is call listen unblocks the thread and execution continues.
   ///  Parameters:
   ///  - [correlationId] (optional) transaction id to trace execution through call chain.
+  /// Return            Future that recive a null when all done
+  /// Throws error
   @override
   Future endListen(String correlationId) async {
     if (_consumer != null) {
-      await _consumer.cancel();
+      try {
+        await _consumer.cancel();
+      } catch (ex) {
+        logger.error(correlationId, ex, 'Error while closing consumer.');
+      }
     }
   }
 
   ///  Clear method are clears component state.
   ///  Parameters:
   ///  - [correlationId] (optional) transaction id to trace execution through call chain.
-  ///  Returns:
+  /// Return            Future that recive a null when clean compleate
+  /// Throws error
   @override
   Future clear(String correlationId) async {
     _checkOpened('');
@@ -495,5 +475,4 @@ Future complete(MessageEnvelope message ) async{
     logger.trace(
         correlationId, 'Cleared  %s messages in _queue %s', [count, name]);
   }
-
 }

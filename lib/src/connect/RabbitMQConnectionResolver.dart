@@ -88,14 +88,14 @@ class RabbitMQConnectionResolver implements IReferenceable, IConfigurable {
     // Compose uri
     if (options.get('uri') == null) {
       var credential = '';
-      if (options.get('usernamme') != null) {
-        credential = options.get('usernamme');
+      if (options.get('username') != null) {
+        credential = options.get('username');
       }
       if (options.get('password') != null) {
         credential += ':' + options.get('password');
       }
       var uri = '';
-      if (credential == null) {
+      if (credential.isEmpty) {
         uri = options.get('protocol') + '://' + options.get('host');
       } else {
         uri = options.get('protocol') +
@@ -153,10 +153,10 @@ class RabbitMQConnectionResolver implements IReferenceable, IConfigurable {
   ///    - [correlationId]    (optional) transaction id to trace execution through call chain.
   ///    - [connection]    connection parameters
   ///    - [credential]     credential parameters
-  /// Returns               Future that receives resolved options 
+  /// Returns               Future that receives resolved options
   /// Throw error.
-  Future<ConfigParams> compose(String correlationId, ConnectionParams connection,
-      CredentialParams credential) async{
+  Future<ConfigParams> compose(String correlationId,
+      ConnectionParams connection, CredentialParams credential) async {
     // Validate connections
     _validateConnection(correlationId, connection);
     return _composeOptions(connection, credential);
