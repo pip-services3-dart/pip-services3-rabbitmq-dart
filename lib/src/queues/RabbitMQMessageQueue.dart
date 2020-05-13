@@ -226,7 +226,7 @@ class RabbitMQMessageQueue extends MessageQueue {
     var message = MessageEnvelope(envelope.properties.corellationId,
         envelope.properties.type, envelope.payloadAsString);
     message.message_id = envelope.properties.messageId;
-    message.sent_time = DateTime.now();
+    message.sent_time = DateTime.now().toUtc();
     message.setReference(envelope);
 
     return message;
