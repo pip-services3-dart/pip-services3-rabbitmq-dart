@@ -16,8 +16,8 @@ import 'package:pip_services3_components/pip_services3_components.dart';
 ///   - [username]:                    user name
 ///   - [password]:                    user password
 ///  References:
-/// - *:discovery:*:*:1.0          (optional) [IDiscovery] services to resolve connections
-/// - *:credential-store:*:*:1.0   (optional) Credential stores to resolve credentials
+/// - *:discovery:*:*:1.0          (optional) [IDiscovery](https://pub.dev/documentation/pip_services3_components/latest/pip_services3_components/IDiscovery-class.html) services to resolve connections
+/// - *:credential-store:*:*:1.0   (optional) Credential stores to resolve credentials [ICredentialStore](https://pub.dev/documentation/pip_services3_components/latest/pip_services3_components/ICredentialStore-class.html)
 
 class RabbitMQConnectionResolver implements IReferenceable, IConfigurable {
   // The connections resolver.
