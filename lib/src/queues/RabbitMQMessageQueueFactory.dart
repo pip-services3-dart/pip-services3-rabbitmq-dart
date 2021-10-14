@@ -8,13 +8,13 @@ class RabbitMQMessageQueueFactory extends Factory {
   static final MemoryQueueDescriptor = Descriptor(
       'pip-services3-rabbitmq', 'message-queue', 'rabbitmq', '*', '*');
 
-  ConfigParams config;
+  ConfigParams? config;
 
   RabbitMQMessageQueueFactory() : super() {
     register(MemoryQueueDescriptor, (locator) {
       var queue = RabbitMQMessageQueue(locator.getName());
       if (config != null) {
-        queue.configure(config);
+        queue.configure(config!);
       }
       return queue;
     });

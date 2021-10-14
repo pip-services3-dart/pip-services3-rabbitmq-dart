@@ -6,8 +6,8 @@ import './MessageQueueFixture.dart';
 
 void main() {
   group('Test RabbitMQMessageQueue', () {
-    RabbitMQMessageQueue queue;
-    MessageQueueFixture fixture;
+    late RabbitMQMessageQueue queue;
+    late MessageQueueFixture fixture;
 
     setUpAll(() async {
       var rabbitmqHost = Platform.environment['RABBITMQ_HOST'] ?? 'localhost';
@@ -16,8 +16,7 @@ void main() {
           Platform.environment['RABBITMQ_EXCHANGE'] ?? 'test';
       var rabbitmqQueue = Platform.environment['RABBITMQ_QUEUE'] ?? 'test';
       var rabbitmqUser = Platform.environment['RABBITMQ_USER'] ?? 'user';
-      var rabbitmqPassword =
-          Platform.environment['RABBITMQ_PASS'] ?? 'password';
+      var rabbitmqPassword = Platform.environment['RABBITMQ_PASS'] ?? 'pass123';
 
       if (rabbitmqHost == null && rabbitmqPort == null) {
         return;
@@ -36,15 +35,15 @@ void main() {
       queue.configure(queueConfig);
       fixture = MessageQueueFixture(queue);
 
-      await queue.open('');
+      await queue.open(null);
     });
 
     tearDownAll(() async {
-      await queue.close('');
+      await queue.close(null);
     });
 
     setUp(() async {
-      await queue.clear('');
+      await queue.clear(null);
     });
 
     // test('RabbitMQMessageQueue:Send Receive Message', () async {

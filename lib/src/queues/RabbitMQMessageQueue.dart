@@ -41,22 +41,22 @@ import '../connect/RabbitMQConnectionResolver.dart';
 
 class RabbitMQMessageQueue extends MessageQueue {
   final _defaultCheckinterval = 1000;
-  amqp.Client _connection;
-  amqp.Channel _mqChanel;
+  amqp.Client? _connection;
+  amqp.Channel? _mqChanel;
   RabbitMQConnectionResolver _optionsResolver;
-  String _queueName;
-  String _exchangeName;
-  amqp.Queue _queue;
-  amqp.Exchange _exchange;
+  String? _queueName;
+  String? _exchangeName;
+  amqp.Queue? _queue;
+  amqp.Exchange? _exchange;
   amqp.ExchangeType _exchangeType = amqp.ExchangeType.FANOUT;
-  amqp.Consumer _consumer;
-  String _routingKey;
+  amqp.Consumer? _consumer;
+  String? _routingKey;
   bool _persistent = false;
   bool _exclusive = false;
   bool _autoCreate = false;
   bool _autoDelete = false;
   bool _noQueue = false;
-  int interval;
+  late int interval;
 
   /// Creates a new instance of the message _queue.
   /// - [name]  (optional) a queue name.
@@ -64,12 +64,12 @@ class RabbitMQMessageQueue extends MessageQueue {
   /// - [mqChanel] (optional) RrabbitMQ chanel
   /// - [queue] (optional)  RrabbitMQ queue name
   RabbitMQMessageQueue(String name,
-      {ConfigParams config, amqp.Channel mqChanel, String queue})
-      : super() {
+      {ConfigParams? config, amqp.Channel? mqChanel, String? queue})
+      : _optionsResolver = RabbitMQConnectionResolver(),
+        super() {
     capabilities = MessagingCapabilities(
         true, true, false, false, false, false, true, false, true);
     interval = _defaultCheckinterval;
-    _optionsResolver = RabbitMQConnectionResolver();
     if (config != null) {
       configure(config);
     }
@@ -85,13 +85,13 @@ class RabbitMQMessageQueue extends MessageQueue {
 
     interval = config.getAsLongWithDefault('interval', _defaultCheckinterval);
 
-    _queueName = config.getAsStringWithDefault('queue', _queueName);
-    _exchangeName = config.getAsStringWithDefault('exchange', _exchangeName);
+    _queueName = config.getAsNullableString('queue') ?? _queueName;
+    _exchangeName = config.getAsNullableString('exchange') ?? _exchangeName;
 
     _exchangeType = amqp.ExchangeType.valueOf(config.getAsStringWithDefault(
         'options.exchange_type', _exchangeType.toString()));
     _routingKey =
-        config.getAsStringWithDefault('options.routing_key', _routingKey);
+        config.getAsNullableString('options.routing_key') ?? _routingKey;
     _persistent =
         config.getAsBooleanWithDefault('options.persistent', _persistent);
     _exclusive =
@@ -103,7 +103,7 @@ class RabbitMQMessageQueue extends MessageQueue {
     _noQueue = config.getAsBooleanWithDefault('options.no_queue', _noQueue);
   }
 
-  void _checkOpened(String correlationId) {
+  void _checkOpened(String? correlationId) {
     if (_mqChanel == null) {
       throw InvalidStateException(
           correlationId, 'NOT_OPENED', 'The _queue is not opened');
@@ -124,8 +124,8 @@ class RabbitMQMessageQueue extends MessageQueue {
   /// Return            Future that recive null if all ok
   /// Throws error
   @override
-  Future openWithParams(String correlationId, ConnectionParams connection,
-      CredentialParams credential) async {
+  Future openWithParams(String? correlationId, ConnectionParams? connection,
+      CredentialParams? credential) async {
     var options =
         await _optionsResolver.compose(correlationId, connection, credential);
 
@@ -137,44 +137,45 @@ class RabbitMQMessageQueue extends MessageQueue {
     var settings = amqp.ConnectionSettings();
     var uri = Uri();
     var url = options.get('uri');
-    uri = uri.resolve(url);
+    uri = uri.resolve(url!);
     settings.host = uri.host;
     settings.port = uri.port;
     if (uri.userInfo != '') {
       var auth = amqp.PlainAuthenticator(
-          options.get('username'), options.get('password'));
+          options.get('username')!, options.get('password')!);
       settings.authProvider = auth;
     }
 
     _connection = amqp.Client(settings: settings);
-    await _connection.connect();
+    await _connection!.connect();
 
-    _mqChanel = await _connection.channel();
+    _mqChanel = await _connection!.channel();
 
     // Automatically create queue, exchange and binding
     if (_autoCreate) {
       if (_exchangeName != null) {
-        _exchange = await _mqChanel.exchange(_exchangeName, _exchangeType,
-            durable: _persistent);
+        _exchange = await _mqChanel!
+            .exchange(_exchangeName!, _exchangeType, durable: _persistent);
       }
       if (!_noQueue) {
         if (_queueName == null) {
-          _queue = await _mqChanel.queue('',
+          _queue = await _mqChanel!.queue('',
               durable: _persistent,
               autoDelete: true,
               exclusive: true,
               noWait: false);
 
-          _queueName = _queue.name;
+          _queueName = _queue?.name;
         } else {
-          _queue = await _mqChanel.queue(_queueName,
+          _queue = await _mqChanel!.queue(_queueName!,
               durable: _persistent,
               exclusive: _exclusive,
               autoDelete: _autoDelete,
               noWait: false);
         }
 
-        _queue = await _queue.bind(_exchange, _routingKey, noWait: false);
+        _queue =
+            await _queue!.bind(_exchange!, _routingKey ?? '', noWait: false);
       }
     }
     return null;
@@ -186,13 +187,13 @@ class RabbitMQMessageQueue extends MessageQueue {
   /// Return            Future that recive null if all ok
   /// Throws error
   @override
-  Future close(String correlationId) async {
+  Future close(String? correlationId) async {
     if (_mqChanel != null) {
-      await _mqChanel.close();
+      await _mqChanel!.close();
     }
 
     if (_connection != null) {
-      await _connection.close();
+      await _connection!.close();
     }
     _connection = null;
     _mqChanel = null;
@@ -207,7 +208,8 @@ class RabbitMQMessageQueue extends MessageQueue {
     try {
       _checkOpened('');
     } catch (err) {
-      logger.error('', err, 'RabbitMQMessageQueue:MessageCount: ' + err);
+      logger.error('', err as Exception,
+          'RabbitMQMessageQueue:MessageCount: ' + err.toString());
       rethrow;
     }
 
@@ -215,17 +217,17 @@ class RabbitMQMessageQueue extends MessageQueue {
       return 0;
     }
 
-    return _queue.messageCount;
+    return _queue!.messageCount;
   }
 
-  MessageEnvelope _toMessage(amqp.AmqpMessage envelope) {
+  MessageEnvelope? _toMessage(amqp.AmqpMessage? envelope) {
     if (envelope == null) {
       return null;
     }
 
-    var message = MessageEnvelope(envelope.properties.corellationId,
-        envelope.properties.type, envelope.payloadAsString);
-    message.message_id = envelope.properties.messageId;
+    var message = MessageEnvelope(envelope.properties?.corellationId,
+        envelope.properties?.type, envelope.payloadAsString);
+    message.message_id = envelope.properties?.messageId ?? '';
     message.sent_time = DateTime.now().toUtc();
     message.setReference(envelope);
 
@@ -239,7 +241,7 @@ class RabbitMQMessageQueue extends MessageQueue {
   /// Return            Future that recive null if all ok
   /// Throws error
   @override
-  Future send(String correlationId, MessageEnvelope message) async {
+  Future send(String? correlationId, MessageEnvelope message) async {
     _checkOpened(correlationId);
 
     var messageProperties = amqp.MessageProperties();
@@ -248,14 +250,14 @@ class RabbitMQMessageQueue extends MessageQueue {
     if (message.correlation_id != null) {
       messageProperties.corellationId = message.correlation_id;
     }
-    if (message.message_id != null) {
+    if (message.message_id != null && message.message_id.isNotEmpty) {
       messageProperties.messageId = message.message_id;
     }
     messageProperties.persistent = _persistent;
     if (message.message_type != null) {
       messageProperties.type = message.message_type;
     }
-    _queue.publish(message.message, properties: messageProperties);
+    _queue!.publish(message.message!, properties: messageProperties);
 
     counters.incrementOne('_queue.' + name + '.sent_messages');
     logger.debug(
@@ -270,7 +272,7 @@ class RabbitMQMessageQueue extends MessageQueue {
   /// Return            Future that recive a message
   /// Throws error
   @override
-  Future<MessageEnvelope> peek(String correlationId) async {
+  Future<MessageEnvelope> peek(String? correlationId) async {
     // _checkOpened(correlationId);
 
     // var envelope = _mqChanel.get(_queue, false);
@@ -293,7 +295,7 @@ class RabbitMQMessageQueue extends MessageQueue {
   /// Throws error
   @override
   Future<List<MessageEnvelope>> peekBatch(
-      String correlationId, int messageCount) async {
+      String? correlationId, int messageCount) async {
 //  _checkOpened(correlationId);
 // 	var messages = <MessageEnvelope>[];
 // 	for (;messageCount > 0;) {
@@ -318,7 +320,8 @@ class RabbitMQMessageQueue extends MessageQueue {
   /// Return            Future that recive a message
   /// Throws error
   @override
-  Future<MessageEnvelope> receive(String correlationId, int waitTimeout) async {
+  Future<MessageEnvelope> receive(
+      String? correlationId, int waitTimeout) async {
     // _checkOpened(correlationId);
     // var message = _toMessage(envelope);
     // if (message != null) {
@@ -404,35 +407,38 @@ class RabbitMQMessageQueue extends MessageQueue {
   ///  Returns            Future that recive null on compleate
   /// Throws error
   @override
-  Future listen(String correlationId, IMessageReceiver receiver) async {
+  Future listen(String? correlationId, IMessageReceiver receiver) async {
     try {
       _checkOpened('');
     } catch (err) {
-      logger.error(correlationId, err,
-          'RabbitMQMessageQueue:Listen: Can\'t start listen ' + err);
+      logger.error(correlationId, err as Exception,
+          'RabbitMQMessageQueue:Listen: Can\'t start listen ' + err.toString());
       rethrow;
     }
 
     logger.debug(correlationId, 'Started listening messages at %s', [name]);
     try {
-      _consumer = await _queue.consume();
+      _consumer = await _queue!.consume();
     } catch (err) {
-      logger.error(correlationId, err,
-          'RabbitMQMessageQueue:Listen: Can\'t consume to _queue' + err);
+      logger.error(
+          correlationId,
+          err as Exception,
+          'RabbitMQMessageQueue:Listen: Can\'t consume to _queue' +
+              err.toString());
       rethrow;
     }
 
-    _consumer.listen((amqp.AmqpMessage msg) {
+    _consumer!.listen((amqp.AmqpMessage msg) {
       var message = _toMessage(msg);
       counters.incrementOne('_queue.' + name + '.received_messages');
-      logger.debug(message.correlation_id, 'Received message %s via %s',
+      logger.debug(message?.correlation_id, 'Received message %s via %s',
           [message, name]);
       try {
-        receiver.receiveMessage(message, this);
+        receiver.receiveMessage(message!, this);
       } catch (err) {
         logger.error(
-            message.correlation_id,
-            err,
+            message?.correlation_id,
+            err as Exception,
             'Processing received message %s error in _queue %s',
             [message, name]);
       }
@@ -447,12 +453,13 @@ class RabbitMQMessageQueue extends MessageQueue {
   /// Return            Future that recive a null when all done
   /// Throws error
   @override
-  Future endListen(String correlationId) async {
+  Future endListen(String? correlationId) async {
     if (_consumer != null) {
       try {
-        await _consumer.cancel();
+        await _consumer!.cancel();
       } catch (ex) {
-        logger.error(correlationId, ex, 'Error while closing consumer.');
+        logger.error(
+            correlationId, ex as Exception, 'Error while closing consumer.');
       }
     }
   }
@@ -463,13 +470,13 @@ class RabbitMQMessageQueue extends MessageQueue {
   /// Return            Future that recive a null when clean compleate
   /// Throws error
   @override
-  Future clear(String correlationId) async {
+  Future clear(String? correlationId) async {
     _checkOpened('');
 
     var count = 0;
     if (_queue != null) {
-      count = _queue.messageCount;
-      await _queue.purge();
+      count = _queue!.messageCount;
+      await _queue!.purge();
     }
 
     logger.trace(

@@ -4,10 +4,10 @@ import 'package:test/test.dart';
 import 'package:pip_services3_messaging/pip_services3_messaging.dart';
 
 class TestMessageReciver implements IMessageReceiver {
-  MessageEnvelope message;
+  late MessageEnvelope message;
 
   @override
-  Future receiveMessage(MessageEnvelope envelope, IMessageQueue queue) {
+  Future receiveMessage(MessageEnvelope envelope, IMessageQueue queue) async {
     message = envelope;
   }
 }
@@ -15,11 +15,9 @@ class TestMessageReciver implements IMessageReceiver {
 class MessageQueueFixture {
   IMessageQueue _queue;
 
-  MessageQueueFixture(IMessageQueue queue) {
-    _queue = queue;
-  }
+  MessageQueueFixture(IMessageQueue queue) : _queue = queue;
 
-  void testSendReceiveMessage() async {
+  Future testSendReceiveMessage() async {
     var envelope1 = MessageEnvelope('123', 'Test', 'Test message');
     MessageEnvelope envelope2;
 
@@ -29,14 +27,14 @@ class MessageQueueFixture {
     expect(count > 0, isTrue);
 
     var result = await _queue.receive(null, 10000);
-    envelope2 = result;
+    envelope2 = result!;
     expect(envelope2, isNotNull);
     expect(envelope1.message_type, envelope2.message_type);
     expect(envelope1.message, envelope2.message);
     expect(envelope1.correlation_id, envelope2.correlation_id);
   }
 
-  void testReceiveSendMessage() async {
+  Future testReceiveSendMessage() async {
     var envelope1 = MessageEnvelope('123', 'Test', 'Test message');
     MessageEnvelope envelope2;
 
@@ -45,7 +43,7 @@ class MessageQueueFixture {
     });
 
     var result = await _queue.receive(null, 10000);
-    envelope2 = result;
+    envelope2 = result!;
 
     expect(envelope2, isNotNull);
     expect(envelope1.message_type, envelope2.message_type);
@@ -53,7 +51,7 @@ class MessageQueueFixture {
     expect(envelope1.correlation_id, envelope2.correlation_id);
   }
 
-  void testReceiveCompleteMessage() async {
+  Future testReceiveCompleteMessage() async {
     var envelope1 = MessageEnvelope('123', 'Test', 'Test message');
     MessageEnvelope envelope2;
 
@@ -63,7 +61,7 @@ class MessageQueueFixture {
     expect(count > 0, isTrue);
 
     var result = await _queue.receive(null, 10000);
-    envelope2 = result;
+    envelope2 = result!;
 
     expect(envelope2, isNotNull);
     expect(envelope1.message_type, envelope2.message_type);
@@ -74,14 +72,14 @@ class MessageQueueFixture {
     expect(envelope2.getReference(), isNull);
   }
 
-  void testReceiveAbandonMessage() async {
+  Future testReceiveAbandonMessage() async {
     var envelope1 = MessageEnvelope('123', 'Test', 'Test message');
     MessageEnvelope envelope2;
 
     await _queue.send(null, envelope1);
 
     var result = await _queue.receive(null, 10000);
-    envelope2 = result;
+    envelope2 = result!;
 
     expect(envelope2, isNotNull);
     expect(envelope1.message_type, envelope2.message_type);
@@ -91,7 +89,7 @@ class MessageQueueFixture {
     await _queue.abandon(envelope2);
 
     result = await _queue.receive(null, 10000);
-    envelope2 = result;
+    envelope2 = result!;
 
     expect(envelope2, isNotNull);
     expect(envelope1.message_type, envelope2.message_type);
@@ -99,14 +97,14 @@ class MessageQueueFixture {
     expect(envelope1.correlation_id, envelope2.correlation_id);
   }
 
-  void testSendPeekMessage() async {
+  Future testSendPeekMessage() async {
     var envelope1 = MessageEnvelope('123', 'Test', 'Test message');
     MessageEnvelope envelope2;
 
     await _queue.send(null, envelope1);
 
     var result = await _queue.peek(null);
-    envelope2 = result;
+    envelope2 = result!;
 
     expect(envelope2, isNotNull);
     expect(envelope1.message_type, envelope2.message_type);
@@ -114,19 +112,19 @@ class MessageQueueFixture {
     expect(envelope1.correlation_id, envelope2.correlation_id);
   }
 
-  void testPeekNoMessage() async {
+  Future testPeekNoMessage() async {
     var result = await _queue.peek(null);
     expect(result, isNull);
   }
 
-  void testMoveToDeadMessage() async {
+  Future testMoveToDeadMessage() async {
     var envelope1 = MessageEnvelope('123', 'Test', 'Test message');
     MessageEnvelope envelope2;
 
     await _queue.send(null, envelope1);
 
     var result = await _queue.receive(null, 10000);
-    envelope2 = result;
+    envelope2 = result!;
 
     expect(envelope2, isNotNull);
     expect(envelope1.message_type, envelope2.message_type);
@@ -136,7 +134,7 @@ class MessageQueueFixture {
     await _queue.moveToDeadLetter(envelope2);
   }
 
-  void testOnMessage() async {
+  Future testOnMessage() async {
     var envelope1 = MessageEnvelope('123', 'Test', 'Test message');
     MessageEnvelope envelope2;
     var reciver = TestMessageReciver();
@@ -156,7 +154,7 @@ class MessageQueueFixture {
     _queue.endListen(null);
   }
 
-  void testMessageCount() async {
+  Future testMessageCount() async {
     var envelope1 = MessageEnvelope('123', 'Test', 'Test message');
     await _queue.send('', envelope1);
     await Future.delayed(Duration(milliseconds: 500), () {});

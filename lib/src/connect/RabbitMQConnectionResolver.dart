@@ -25,10 +25,9 @@ class RabbitMQConnectionResolver implements IReferenceable, IConfigurable {
   //The credentials resolver.
   CredentialResolver credentialResolver;
 
-  RabbitMQConnectionResolver() {
-    connectionResolver = ConnectionResolver();
-    credentialResolver = CredentialResolver();
-  }
+  RabbitMQConnectionResolver()
+      : connectionResolver = ConnectionResolver(),
+        credentialResolver = CredentialResolver();
 
   /// Configure are configures component by passing configuration parameters.
   /// Parameters:
@@ -48,7 +47,8 @@ class RabbitMQConnectionResolver implements IReferenceable, IConfigurable {
     credentialResolver.setReferences(references);
   }
 
-  void _validateConnection(String correlationId, ConnectionParams connection) {
+  void _validateConnection(
+      String? correlationId, ConnectionParams? connection) {
     if (connection == null) {
       throw ConfigException(
           correlationId, 'NO_CONNECTION', 'RabbitMQ connection is not set');
@@ -59,7 +59,7 @@ class RabbitMQConnectionResolver implements IReferenceable, IConfigurable {
       return;
     }
 
-    var protocol = connection.getAsString('protocol');
+    var protocol = connection.getAsNullableString('protocol');
     if (protocol == null || protocol.isEmpty) {
       //return cerr.NewConfigError(correlationId, 'NO_PROTOCOL', 'Connection protocol is not set')
       connection.setAsObject('protocol', 'amqp');
@@ -79,33 +79,33 @@ class RabbitMQConnectionResolver implements IReferenceable, IConfigurable {
   }
 
   ConfigParams _composeOptions(
-      ConnectionParams connection, CredentialParams credential) {
+      ConnectionParams? connection, CredentialParams? credential) {
     // Define additional parameters parameters
     credential ??= CredentialParams();
 
-    var options = connection.override(credential);
+    var options = connection!.override(credential);
 
     // Compose uri
     if (options.get('uri') == null) {
       var credential = '';
       if (options.get('username') != null) {
-        credential = options.get('username');
+        credential = options.get('username')!;
       }
       if (options.get('password') != null) {
-        credential += ':' + options.get('password');
+        credential += ':' + options.get('password')!;
       }
       var uri = '';
       if (credential.isEmpty) {
-        uri = options.get('protocol') + '://' + options.get('host');
+        uri = options.get('protocol')! + '://' + options.get('host')!;
       } else {
-        uri = options.get('protocol') +
+        uri = options.get('protocol')! +
             '://' +
             credential +
             '@' +
-            options.get('host');
+            options.get('host')!;
       }
       if (options.get('port') != null) {
-        uri = uri + ':' + options.get('port');
+        uri = uri + ':' + options.get('port')!;
       }
       options.setAsObject('uri', uri);
     }
@@ -117,9 +117,9 @@ class RabbitMQConnectionResolver implements IReferenceable, IConfigurable {
   ///  - [correlationId]   (optional) transaction id to trace execution through call chain.
   /// Retruns               Future that receives resolved options
   /// Throw error.
-  Future<ConfigParams> resolve(String correlationId) async {
-    ConnectionParams connection;
-    CredentialParams credential;
+  Future<ConfigParams> resolve(String? correlationId) async {
+    ConnectionParams? connection;
+    CredentialParams? credential;
     var err;
 
     await Future.wait([
@@ -155,8 +155,8 @@ class RabbitMQConnectionResolver implements IReferenceable, IConfigurable {
   ///    - [credential]     credential parameters
   /// Returns               Future that receives resolved options
   /// Throw error.
-  Future<ConfigParams> compose(String correlationId,
-      ConnectionParams connection, CredentialParams credential) async {
+  Future<ConfigParams> compose(String? correlationId,
+      ConnectionParams? connection, CredentialParams? credential) async {
     // Validate connections
     _validateConnection(correlationId, connection);
     return _composeOptions(connection, credential);

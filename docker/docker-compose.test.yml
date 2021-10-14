@@ -20,3 +20,9 @@ services:
     environment:
       - RABBITMQ_USERNAME=user
       - RABBITMQ_PASSWORD=pass123
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    expose:
+      - "5672"
+      - "15672"
