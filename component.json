@@ -1,6 +1,6 @@
 {
-    "name": "pip-services3-rabbitmq",
-    "registry": "pipdevs",
+    "name": "pip_services3_rabbitmq",
+    "registry": "github.com/pip-services3-dart",
     "version": "1.0.0",
     "build": "0"
 }
