@@ -320,17 +320,30 @@ class RabbitMQMessageQueue extends MessageQueue {
   /// Return            Future that recive a message
   /// Throws error
   @override
-  Future<MessageEnvelope> receive(
+  Future<MessageEnvelope?> receive(
       String? correlationId, int waitTimeout) async {
-    // _checkOpened(correlationId);
-    // var message = _toMessage(envelope);
-    // if (message != null) {
-    //   counters.incrementOne('_queue.' + name + '.received_messages');
-    //   logger.debug(message.correlation_id, 'Received message %s via %s',
-    //       [message, this]);
-    // }
-    // return message;
-    throw Exception('Method "receive" are not supported!');
+    _checkOpened(correlationId);
+
+    MessageEnvelope? receivedMessage;
+
+    _consumer ??= await _queue!.consume();
+
+    await Future(() async {
+      _consumer!.listen((amqp.AmqpMessage message) {
+        message.ack();
+        receivedMessage = _toMessage(message);
+      });
+
+      var start = 0;
+      while (waitTimeout - start > 0 && receivedMessage == null) {
+        await Future.delayed(Duration(milliseconds: 100));
+        start += 100;
+      }
+    });
+
+    // await _consumer!.channel.;
+
+    return receivedMessage;
   }
 
   ///  Renews a lock on a message that makes it invisible from other receivers in the _queue.
@@ -364,7 +377,7 @@ class RabbitMQMessageQueue extends MessageQueue {
     if (envelope != null) {
       envelope.reject(true);
       message.setReference(null);
-      logger.trace(message.correlation_id, 'Abandoned message %s at %c',
+      logger.trace(message.correlation_id, 'Abandoned message %s at %s',
           [message, name]);
     }
     return null;
